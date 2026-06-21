@@ -30,7 +30,11 @@
     </div>
     <div class="app-header__actions">
       <button id="btnTema" class="btn btn--ghost btn--icono" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
-      <button id="btnGuardar" class="btn btn--ghost">💾 Guardar borrador</button>
+      <div class="guardar-grupo">
+        <button id="btnGuardar" class="btn btn--ghost"
+          title="Guarda en este navegador. Al reabrirlo los textos permanecen, los archivos no.">💾 Guardar borrador</button>
+        <small class="guardar-nota">Al guardar, los <b>textos</b> permanecen aunque cierres el navegador; los <b>archivos</b> no.</small>
+      </div>
     </div>
   </div>
 </header>
