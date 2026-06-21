@@ -89,23 +89,32 @@
   <!-- SECCIONES DINÁMICAS -->
   <div id="seccionesContainer" style="display:flex;flex-direction:column;gap:1.4rem"></div>
 
+  <!-- ENVÍO A ONEDRIVE -->
+  <section class="card reveal">
+    <h2 class="card__title">Enviar evidencias a OneDrive</h2>
+    <p style="font-size:.85rem;color:var(--texto-suave);margin:0 0 1rem">
+      Las evidencias se suben a tu OneDrive a través de un flujo de <b>Power Automate</b> (trigger HTTP).
+      Se envía <b>un archivo por solicitud</b> para soportar videos pesados sin saturar el flujo.
+    </p>
+    <label class="campo" style="margin-bottom:1rem">
+      <span>URL del flujo (HTTP POST de Power Automate)</span>
+      <input id="flowUrl" placeholder="https://prod-XX.westus.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?...">
+    </label>
+
+    <div id="barraProgreso" class="progreso oculto">
+      <div class="progreso__barra"><div class="progreso__relleno" id="progresoRelleno"></div></div>
+      <div class="progreso__texto" id="progresoTexto">Preparando…</div>
+    </div>
+
+    <button id="btnOneDrive" class="btn btn--lg btn--azul" style="margin-top:.4rem">☁️ Enviar a OneDrive</button>
+  </section>
+
   <!-- BOTONES FINALES -->
   <section class="card acciones reveal">
     <button id="btnZip" class="btn btn--lg btn--verde">📦 Descargar ZIP con evidencias renombradas</button>
     <button id="btnGenerar" class="btn btn--lg btn--azul">📄 Generar Entregable (Word)</button>
   </section>
 
-  <!-- INSTRUCCIONES -->
-  <section class="instrucciones reveal">
-    <p class="titulo">📥 Cómo subir todo a OneDrive en un solo paso:</p>
-    <ol>
-      <li>Carga todas las evidencias y completa la información.</li>
-      <li>Haz clic en <b>"Descargar ZIP"</b> → el archivo contiene una carpeta lista con la jerarquía <code>Periodo/Sección/Subcategoría/</code>.</li>
-      <li>Descomprime el ZIP en tu PC.</li>
-      <li>Abre la carpeta de OneDrive en el explorador (sincronizada) o en el navegador y arrastra los contenidos del ZIP allí.</li>
-      <li>Haz clic en <b>"Generar Entregable"</b> para descargar el informe Word con el mismo formato institucional.</li>
-    </ol>
-  </section>
 </main>
 
 <!-- TOAST -->

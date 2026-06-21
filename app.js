@@ -298,6 +298,100 @@ document.getElementById('btnZip').onclick = async () => {
 };
 
 /* ============================================================
+   ENVÍO A ONEDRIVE VÍA POWER AUTOMATE (un archivo por request)
+   ============================================================ */
+const LIMITE_AVISO_MB = 100; // aviso para archivos grandes (riesgo de memoria/timeout)
+
+/* Convierte un File a base64 (sin el prefijo data:...;base64,) */
+function archivoABase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/* Recuerda la URL del flujo */
+const flowInput = document.getElementById('flowUrl');
+flowInput.value = localStorage.getItem('flowUrlSPC') || '';
+flowInput.addEventListener('change', () => localStorage.setItem('flowUrlSPC', flowInput.value.trim()));
+
+function mostrarProgreso(pct, texto){
+  document.getElementById('barraProgreso').classList.remove('oculto');
+  document.getElementById('progresoRelleno').style.width = pct + '%';
+  document.getElementById('progresoTexto').textContent = texto;
+}
+
+document.getElementById('btnOneDrive').onclick = async () => {
+  const enc = leerEncabezado();
+  const url = flowInput.value.trim();
+  if(!url){ toast('Pega la URL del flujo de Power Automate'); return; }
+  if(!/^https:\/\//i.test(url)){ toast('La URL del flujo debe empezar por https://'); return; }
+  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06)'); return; }
+
+  // Aplanar todos los archivos
+  const lista = [];
+  SECCIONES.forEach(s => SUBCATS.forEach(sc => {
+    estado[s.id][sc.id].archivos.forEach(a => lista.push({
+      ruta: `${s.slug}/${sc.slug}`,
+      nombreArchivo: `${a.nombreNormalizado}.${a.extension}`,
+      archivo: a.file
+    }));
+  }));
+  if(lista.length === 0){ toast('No hay evidencias cargadas'); return; }
+
+  const grandes = lista.filter(x => x.archivo.size > LIMITE_AVISO_MB * 1024 * 1024);
+  if(grandes.length){
+    const ok = confirm(`${grandes.length} archivo(s) superan ${LIMITE_AVISO_MB} MB. ` +
+      `Power Automate puede rechazarlos o tardar mucho. ¿Continuar de todos modos?`);
+    if(!ok) return;
+  }
+
+  const btn = document.getElementById('btnOneDrive');
+  btn.disabled = true;
+  const carpetaRaiz = `EvidenciasSPC_${enc.periodoCarpeta}`;
+  let enviados = 0;
+  const fallidos = [];
+
+  for(let i = 0; i < lista.length; i++){
+    const it = lista[i];
+    mostrarProgreso(Math.round(i / lista.length * 100),
+      `Enviando ${i + 1} de ${lista.length}: ${it.nombreArchivo}`);
+    try {
+      const contenidoBase64 = await archivoABase64(it.archivo);
+      const payload = {
+        carpetaRaiz,                       // EvidenciasSPC_2026-06
+        ruta: it.ruta,                     // SECCION/SUBCATEGORIA
+        nombreArchivo: it.nombreArchivo,   // nombre.ext
+        rutaCompleta: `${carpetaRaiz}/${it.ruta}/${it.nombreArchivo}`,
+        contenidoBase64,
+        indice: i + 1,
+        total: lista.length
+      };
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if(!resp.ok) throw new Error('HTTP ' + resp.status);
+      enviados++;
+    } catch(err){
+      console.error('Error con', it.nombreArchivo, err);
+      fallidos.push(it.nombreArchivo);
+    }
+  }
+
+  mostrarProgreso(100, fallidos.length
+    ? `Completado con errores: ${enviados} ok, ${fallidos.length} fallidos`
+    : `✅ ${enviados} evidencias enviadas a OneDrive`);
+  btn.disabled = false;
+  toast(fallidos.length
+    ? `Enviados ${enviados}/${lista.length}. Fallaron: ${fallidos.join(', ')}`
+    : `✅ ${enviados} evidencias enviadas a OneDrive`);
+};
+
+/* ============================================================
    GENERAR ENTREGABLE WORD CON FORMATO INSTITUCIONAL
    ============================================================ */
 document.getElementById('btnGenerar').onclick = async () => {

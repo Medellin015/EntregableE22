@@ -429,6 +429,26 @@ body[data-theme="dark"] .tabla-evid thead { background: #1b2942; }
 #scrollTop.show { opacity: 1; visibility: visible; transform: translateY(0); }
 #scrollTop:hover { transform: translateY(-3px); }
 
+/* ---------- Barra de progreso de subida ---------- */
+.progreso { margin: .2rem 0 1rem; }
+.progreso__barra {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--borde);
+  overflow: hidden;
+}
+.progreso__relleno {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--azul-600), var(--verde-500));
+  transition: width .3s ease;
+}
+.progreso__texto { font-size: .8rem; color: var(--texto-suave); margin-top: .4rem; }
+
+.btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
 .oculto { display: none; }
 
 /* ---------- Entrada animada ---------- */
