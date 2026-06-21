@@ -93,8 +93,11 @@ SECCIONES.forEach(sec => {
   det.className = 'seccion';
   det.innerHTML = `
     <summary>
-      <span><span class="seccion__dot">●</span>${sec.titulo}</span>
-      <span class="seccion__chevron">▼</span>
+      <span class="seccion__titulo"><span class="seccion__dot">●</span><span>${sec.titulo}</span></span>
+      <span class="seccion__meta">
+        <span class="seccion__count" id="count_${sec.id}" data-empty="true">0</span>
+        <span class="seccion__chevron">▼</span>
+      </span>
     </summary>
     <div class="seccion__body" id="cont_${sec.id}">
       ${SUBCATS.map(sc => `
@@ -105,7 +108,10 @@ SECCIONES.forEach(sec => {
             placeholder="Cada línea será una viñeta en el Word"></textarea>
 
           <label class="etiqueta">Evidencias</label>
-          <input type="file" multiple data-sec="${sec.id}" data-sub="${sc.id}" data-campo="archivos">
+          <div class="dropzone" data-sec="${sec.id}" data-sub="${sc.id}">
+            <input type="file" multiple data-sec="${sec.id}" data-sub="${sc.id}" data-campo="archivos">
+            <span class="dropzone__hint">📎 <b>Arrastra aquí</b> tus archivos o haz clic para seleccionarlos</span>
+          </div>
 
           <table class="tabla-evid oculto" id="tabla_${sec.id}_${sc.id}">
             <thead>
@@ -133,27 +139,43 @@ document.querySelectorAll('textarea[data-campo="texto"]').forEach(t => {
   });
 });
 
+function agregarArchivos(sec, sub, fileList){
+  const usados = new Set(estado[sec][sub].archivos.map(a => a.nombreNormalizado));
+  for(const file of fileList){
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const esVideo = EXT_VIDEO.includes(ext);
+    const fecha = new Date();
+    const nomNorm = normalizarNombre(file.name, fecha, esVideo, usados);
+    usados.add(nomNorm);
+    estado[sec][sub].archivos.push({
+      nombreOriginal: file.name,
+      nombreNormalizado: nomNorm,
+      extension: ext,
+      fecha: fecha,
+      esVideo,
+      file
+    });
+  }
+  refrescarTabla(sec, sub);
+}
+
 document.querySelectorAll('input[type="file"]').forEach(inp => {
-  inp.addEventListener('change', async e => {
-    const sec = e.target.dataset.sec, sub = e.target.dataset.sub;
-    const usados = new Set(estado[sec][sub].archivos.map(a => a.nombreNormalizado));
-    for(const file of e.target.files){
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-      const esVideo = EXT_VIDEO.includes(ext);
-      const fecha = new Date();
-      const nomNorm = normalizarNombre(file.name, fecha, esVideo, usados);
-      usados.add(nomNorm);
-      estado[sec][sub].archivos.push({
-        nombreOriginal: file.name,
-        nombreNormalizado: nomNorm,
-        extension: ext,
-        fecha: fecha,
-        esVideo,
-        file
-      });
-    }
+  inp.addEventListener('change', e => {
+    agregarArchivos(e.target.dataset.sec, e.target.dataset.sub, e.target.files);
     e.target.value = '';
-    refrescarTabla(sec, sub);
+  });
+});
+
+/* Arrastrar y soltar archivos */
+document.querySelectorAll('.dropzone').forEach(dz => {
+  ['dragenter','dragover'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('dragover'); }));
+  ['dragleave','dragend','drop'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('dragover'); }));
+  dz.addEventListener('drop', e => {
+    if(e.dataTransfer?.files?.length){
+      agregarArchivos(dz.dataset.sec, dz.dataset.sub, e.dataTransfer.files);
+    }
   });
 });
 
@@ -174,6 +196,30 @@ function refrescarTabla(sec, sub){
       <td class="centro"><button class="btn-eliminar" onclick="eliminarArchivo('${sec}','${sub}',${i})">Eliminar</button></td>
     </tr>`;
   }).join('');
+  actualizarMetricas();
+}
+
+/* ============================================================
+   MÉTRICAS Y CONTADORES (barra superior + chips de sección)
+   ============================================================ */
+function actualizarMetricas(){
+  let totalArchivos = 0, seccionesConEvid = 0, alertas = 0;
+  SECCIONES.forEach(s => {
+    let porSeccion = 0;
+    SUBCATS.forEach(sc => {
+      const arr = estado[s.id][sc.id].archivos;
+      porSeccion += arr.length;
+      arr.forEach(a => { if(a.nombreNormalizado.length > 20) alertas++; });
+    });
+    totalArchivos += porSeccion;
+    if(porSeccion > 0) seccionesConEvid++;
+    const chip = document.getElementById(`count_${s.id}`);
+    if(chip){ chip.textContent = porSeccion; chip.dataset.empty = porSeccion === 0; }
+  });
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+  set('statArchivos', totalArchivos);
+  set('statSecciones', `${seccionesConEvid}/${SECCIONES.length}`);
+  set('statAlertas', alertas);
 }
 
 function cambiarFecha(sec,sub,i,val){
@@ -419,3 +465,50 @@ function toast(msg){
     setTimeout(()=>t.classList.add('oculto'), 350);
   }, 3500);
 }
+
+/* ============================================================
+   TEMA CLARO / OSCURO
+   ============================================================ */
+(function temaInit(){
+  const btn = document.getElementById('btnTema');
+  const guardado = localStorage.getItem('temaSPC');
+  const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const tema = guardado || (prefiereOscuro ? 'dark' : 'light');
+  aplicarTema(tema);
+  btn.onclick = () => {
+    const nuevo = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+    aplicarTema(nuevo);
+    localStorage.setItem('temaSPC', nuevo);
+  };
+  function aplicarTema(t){
+    document.body.dataset.theme = t;
+    btn.textContent = t === 'dark' ? '☀️' : '🌙';
+    btn.title = t === 'dark' ? 'Tema claro' : 'Tema oscuro';
+  }
+})();
+
+/* ============================================================
+   BOTÓN VOLVER ARRIBA
+   ============================================================ */
+(function scrollTopInit(){
+  const btn = document.getElementById('scrollTop');
+  window.addEventListener('scroll', () => {
+    btn.classList.toggle('show', window.scrollY > 400);
+  }, { passive:true });
+  btn.onclick = () => window.scrollTo({ top:0, behavior:'smooth' });
+})();
+
+/* ============================================================
+   ANIMACIÓN DE ENTRADA AL HACER SCROLL
+   ============================================================ */
+(function revealInit(){
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if(en.isIntersecting){ en.target.classList.add('visible'); obs.unobserve(en.target); }
+    });
+  }, { threshold:0.08 });
+  document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+})();
+
+/* Cálculo inicial de métricas (por si hay borrador cargado) */
+actualizarMetricas();
