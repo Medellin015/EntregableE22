@@ -29,14 +29,42 @@
         <p>Secretaría de Participación Ciudadana · Proyecto ACTIVA</p>
       </div>
     </div>
-    <button id="btnGuardar" class="btn btn--ghost">💾 Guardar borrador</button>
+    <div class="app-header__actions">
+      <button id="btnTema" class="btn btn--ghost btn--icono" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
+      <button id="btnGuardar" class="btn btn--ghost">💾 Guardar borrador</button>
+    </div>
   </div>
 </header>
 
 <main>
 
+  <!-- RESUMEN / ESTADÍSTICAS -->
+  <section class="stats reveal">
+    <div class="stat">
+      <div class="stat__icon">📁</div>
+      <div>
+        <div class="stat__num" id="statArchivos">0</div>
+        <div class="stat__label">Evidencias cargadas</div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat__icon">🗂️</div>
+      <div>
+        <div class="stat__num" id="statSecciones">0/3</div>
+        <div class="stat__label">Secciones con evidencias</div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat__icon">⚠️</div>
+      <div>
+        <div class="stat__num" id="statAlertas">0</div>
+        <div class="stat__label">Nombres con más de 20 caracteres</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ENCABEZADO -->
-  <section class="card">
+  <section class="card reveal">
     <h2 class="card__title">Encabezado del informe</h2>
     <div class="grid-2">
       <label class="campo"><span>Proyecto</span><input id="proyecto" value="240193: Mejoramiento de la Presupuestación Participativa y el Desarrollo Local."></label>
@@ -62,13 +90,13 @@
   <div id="seccionesContainer" style="display:flex;flex-direction:column;gap:1.4rem"></div>
 
   <!-- BOTONES FINALES -->
-  <section class="card acciones">
+  <section class="card acciones reveal">
     <button id="btnZip" class="btn btn--lg btn--verde">📦 Descargar ZIP con evidencias renombradas</button>
     <button id="btnGenerar" class="btn btn--lg btn--azul">📄 Generar Entregable (Word)</button>
   </section>
 
   <!-- INSTRUCCIONES -->
-  <section class="instrucciones">
+  <section class="instrucciones reveal">
     <p class="titulo">📥 Cómo subir todo a OneDrive en un solo paso:</p>
     <ol>
       <li>Carga todas las evidencias y completa la información.</li>
@@ -82,6 +110,9 @@
 
 <!-- TOAST -->
 <div id="toast" class="oculto"></div>
+
+<!-- VOLVER ARRIBA -->
+<button id="scrollTop" title="Volver arriba" aria-label="Volver arriba">↑</button>
 
 <!-- Lógica de la aplicación -->
 <script src="app.js"></script>
