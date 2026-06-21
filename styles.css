@@ -105,7 +105,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
 }
-.app-header__brand { display: flex; align-items: center; gap: .9rem; }
+.app-header__brand { display: flex; align-items: center; gap: .9rem; min-width: 0; }
 .app-header__logo {
   width: 48px; height: 48px;
   flex: 0 0 auto;
@@ -129,6 +129,17 @@ body {
   text-align: right;
 }
 @media (max-width: 640px) { .guardar-nota { display: none; } }
+
+/* Encabezado responsive: en móvil la marca va arriba y los botones debajo */
+@media (max-width: 640px) {
+  .app-header__inner { flex-wrap: wrap; padding: .9rem 1rem; gap: .7rem; }
+  .app-header__brand { flex: 1 1 100%; gap: .6rem; }
+  .app-header__logo { width: 40px; height: 40px; font-size: 1.3rem; }
+  .app-header h1 { font-size: 1.05rem; }
+  .app-header p { font-size: .75rem; }
+  .app-header__actions { width: 100%; justify-content: flex-end; align-items: center; }
+  .guardar-grupo { align-items: flex-end; }
+}
 
 /* ---------- Botones ---------- */
 .btn {
