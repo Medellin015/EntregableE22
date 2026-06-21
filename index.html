@@ -15,7 +15,6 @@
 
 <!-- Librerías de terceros -->
 <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 </head>
 <body>
@@ -101,17 +100,11 @@
       <input id="flowUrl" placeholder="https://prod-XX.westus.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?...">
     </label>
 
-    <div id="barraProgreso" class="progreso oculto">
-      <div class="progreso__barra"><div class="progreso__relleno" id="progresoRelleno"></div></div>
-      <div class="progreso__texto" id="progresoTexto">Preparando…</div>
-    </div>
-
     <button id="btnOneDrive" class="btn btn--lg btn--azul" style="margin-top:.4rem">☁️ Enviar a OneDrive</button>
   </section>
 
   <!-- BOTONES FINALES -->
   <section class="card acciones reveal">
-    <button id="btnZip" class="btn btn--lg btn--verde">📦 Descargar ZIP con evidencias renombradas</button>
     <button id="btnGenerar" class="btn btn--lg btn--azul">📄 Generar Entregable (Word)</button>
   </section>
 
@@ -119,6 +112,32 @@
 
 <!-- TOAST -->
 <div id="toast" class="oculto"></div>
+
+<!-- OVERLAY DE ENVÍO / REPORTE -->
+<div id="overlayEnvio" class="overlay oculto" role="dialog" aria-modal="true" aria-live="polite">
+  <div class="overlay__card">
+    <!-- Estado: enviando -->
+    <div id="overlayEnviando">
+      <div class="spinner"></div>
+      <h2 class="overlay__titulo">Enviando evidencias a OneDrive…</h2>
+      <p class="overlay__aviso">⚠️ No cierres ni recargues esta ventana hasta que termine. Si la cierras, el envío se interrumpe y los archivos pendientes se pierden.</p>
+      <div class="progreso">
+        <div class="progreso__barra"><div class="progreso__relleno" id="ovRelleno"></div></div>
+        <div class="progreso__texto" id="ovTexto">Preparando…</div>
+      </div>
+    </div>
+    <!-- Estado: reporte final -->
+    <div id="overlayReporte" class="oculto">
+      <h2 class="overlay__titulo" id="reporteTitulo">Reporte de envío</h2>
+      <div id="reporteResumen" class="reporte__resumen"></div>
+      <div id="reporteLista" class="reporte__lista"></div>
+      <div class="reporte__acciones">
+        <button id="btnReintentar" class="btn btn--lg btn--azul oculto">🔄 Reintentar fallidos</button>
+        <button id="btnCerrarReporte" class="btn btn--lg btn--verde">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- VOLVER ARRIBA -->
 <button id="scrollTop" title="Volver arriba" aria-label="Volver arriba">↑</button>

@@ -274,33 +274,10 @@ function leerEncabezado(){
 }
 
 /* ============================================================
-   GENERAR ZIP CON EVIDENCIAS RENOMBRADAS
-   ============================================================ */
-document.getElementById('btnZip').onclick = async () => {
-  const enc = leerEncabezado();
-  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06)'); return; }
-  const zip = new JSZip();
-  const raiz = zip.folder(`EvidenciasSPC_${enc.periodoCarpeta}`);
-  let total = 0;
-  SECCIONES.forEach(s => {
-    SUBCATS.forEach(sc => {
-      estado[s.id][sc.id].archivos.forEach(a => {
-        const path = `${s.slug}/${sc.slug}/${a.nombreNormalizado}.${a.extension}`;
-        raiz.file(path, a.file);
-        total++;
-      });
-    });
-  });
-  if(total===0){ toast('No hay evidencias cargadas'); return; }
-  toast(`Empaquetando ${total} evidencias...`);
-  const blob = await zip.generateAsync({type:'blob'});
-  saveAs(blob, `EvidenciasSPC_${enc.periodoCarpeta}.zip`);
-};
-
-/* ============================================================
    ENVÍO A ONEDRIVE VÍA POWER AUTOMATE (un archivo por request)
    ============================================================ */
 const LIMITE_AVISO_MB = 100; // aviso para archivos grandes (riesgo de memoria/timeout)
+let enviando = false;        // bloquea cierre y doble clic durante el envío
 
 /* Convierte un File a base64 (sin el prefijo data:...;base64,) */
 function archivoABase64(file){
@@ -317,28 +294,118 @@ const flowInput = document.getElementById('flowUrl');
 flowInput.value = localStorage.getItem('flowUrlSPC') || '';
 flowInput.addEventListener('change', () => localStorage.setItem('flowUrlSPC', flowInput.value.trim()));
 
-function mostrarProgreso(pct, texto){
-  document.getElementById('barraProgreso').classList.remove('oculto');
-  document.getElementById('progresoRelleno').style.width = pct + '%';
-  document.getElementById('progresoTexto').textContent = texto;
+/* Aviso del navegador si intentan cerrar/recargar durante el envío */
+window.addEventListener('beforeunload', (e) => {
+  if(enviando){ e.preventDefault(); e.returnValue = ''; }
+});
+
+/* --- Overlay --- */
+function abrirOverlayEnviando(){
+  document.getElementById('overlayEnviando').classList.remove('oculto');
+  document.getElementById('overlayReporte').classList.add('oculto');
+  document.getElementById('overlayEnvio').classList.remove('oculto');
+}
+function progresoOverlay(pct, texto){
+  document.getElementById('ovRelleno').style.width = pct + '%';
+  document.getElementById('ovTexto').textContent = texto;
+}
+function cerrarOverlay(){ document.getElementById('overlayEnvio').classList.add('oculto'); }
+document.getElementById('btnCerrarReporte').onclick = cerrarOverlay;
+
+/* Construye la lista plana de evidencias a enviar */
+function recolectarEvidencias(carpetaRaiz){
+  const lista = [];
+  SECCIONES.forEach(s => SUBCATS.forEach(sc => {
+    estado[s.id][sc.id].archivos.forEach(a => lista.push({
+      ruta: `${s.slug}/${sc.slug}`,
+      nombreArchivo: `${a.nombreNormalizado}.${a.extension}`,
+      rutaCompleta: `${carpetaRaiz}/${s.slug}/${sc.slug}/${a.nombreNormalizado}.${a.extension}`,
+      archivo: a.file
+    }));
+  }));
+  return lista;
+}
+
+/* Envía una evidencia individual al flujo */
+async function enviarUna(url, it, carpetaRaiz, indice, total){
+  const contenidoBase64 = await archivoABase64(it.archivo);
+  const payload = {
+    carpetaRaiz,                       // EvidenciasSPC_2026-06
+    ruta: it.ruta,                     // SECCION/SUBCATEGORIA
+    nombreArchivo: it.nombreArchivo,   // nombre.ext (recortado a ≤20 + extensión)
+    rutaCompleta: it.rutaCompleta,
+    contenidoBase64,
+    indice, total
+  };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if(!resp.ok) throw new Error('HTTP ' + resp.status);
+}
+
+/* Recorre y envía una colección, devolviendo resultados por archivo */
+async function enviarColeccion(url, items, carpetaRaiz){
+  const resultados = [];
+  for(let i = 0; i < items.length; i++){
+    const it = items[i];
+    progresoOverlay(Math.round(i / items.length * 100),
+      `Enviando ${i + 1} de ${items.length}: ${it.nombreArchivo}`);
+    try {
+      await enviarUna(url, it, carpetaRaiz, i + 1, items.length);
+      resultados.push({ ...it, ok: true });
+    } catch(err){
+      console.error('Error con', it.nombreArchivo, err);
+      resultados.push({ ...it, ok: false, error: err.message });
+    }
+  }
+  progresoOverlay(100, 'Finalizando…');
+  return resultados;
+}
+
+/* Pinta el reporte final dentro del overlay */
+function mostrarReporte(resultados, url, carpetaRaiz){
+  const ok = resultados.filter(r => r.ok);
+  const fail = resultados.filter(r => !r.ok);
+  document.getElementById('reporteTitulo').textContent =
+    fail.length ? 'Envío completado con errores' : '✅ Envío completado';
+  document.getElementById('reporteResumen').innerHTML =
+    `<span class="reporte__chip reporte__chip--ok">✓ ${ok.length} enviadas</span>` +
+    (fail.length ? `<span class="reporte__chip reporte__chip--fail">✗ ${fail.length} fallidas</span>` : '');
+  document.getElementById('reporteLista').innerHTML = resultados.map(r => `
+    <div class="reporte__item ${r.ok ? '' : 'reporte__item--fail'}">
+      <span class="estado">${r.ok ? '✅' : '❌'}</span>
+      <span class="nombre" title="${r.rutaCompleta}">${r.nombreArchivo}</span>
+      <span class="ruta">${r.ok ? r.ruta : (r.error || 'error')}</span>
+    </div>`).join('');
+
+  const btnRe = document.getElementById('btnReintentar');
+  btnRe.classList.toggle('oculto', fail.length === 0);
+  btnRe.onclick = async () => {
+    enviando = true;
+    abrirOverlayEnviando();
+    const resReintento = await enviarColeccion(url, fail, carpetaRaiz);
+    enviando = false;
+    // Combina: los que ya estaban ok + el resultado del reintento
+    mostrarReporte([...ok, ...resReintento], url, carpetaRaiz);
+  };
+
+  document.getElementById('overlayEnviando').classList.add('oculto');
+  document.getElementById('overlayReporte').classList.remove('oculto');
+  toast(fail.length ? `Enviadas ${ok.length}/${resultados.length}` : `✅ ${ok.length} evidencias enviadas`);
 }
 
 document.getElementById('btnOneDrive').onclick = async () => {
+  if(enviando) return;
   const enc = leerEncabezado();
   const url = flowInput.value.trim();
   if(!url){ toast('Pega la URL del flujo de Power Automate'); return; }
   if(!/^https:\/\//i.test(url)){ toast('La URL del flujo debe empezar por https://'); return; }
   if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06)'); return; }
 
-  // Aplanar todos los archivos
-  const lista = [];
-  SECCIONES.forEach(s => SUBCATS.forEach(sc => {
-    estado[s.id][sc.id].archivos.forEach(a => lista.push({
-      ruta: `${s.slug}/${sc.slug}`,
-      nombreArchivo: `${a.nombreNormalizado}.${a.extension}`,
-      archivo: a.file
-    }));
-  }));
+  const carpetaRaiz = `EvidenciasSPC_${enc.periodoCarpeta}`;
+  const lista = recolectarEvidencias(carpetaRaiz);
   if(lista.length === 0){ toast('No hay evidencias cargadas'); return; }
 
   const grandes = lista.filter(x => x.archivo.size > LIMITE_AVISO_MB * 1024 * 1024);
@@ -348,47 +415,13 @@ document.getElementById('btnOneDrive').onclick = async () => {
     if(!ok) return;
   }
 
-  const btn = document.getElementById('btnOneDrive');
-  btn.disabled = true;
-  const carpetaRaiz = `EvidenciasSPC_${enc.periodoCarpeta}`;
-  let enviados = 0;
-  const fallidos = [];
-
-  for(let i = 0; i < lista.length; i++){
-    const it = lista[i];
-    mostrarProgreso(Math.round(i / lista.length * 100),
-      `Enviando ${i + 1} de ${lista.length}: ${it.nombreArchivo}`);
-    try {
-      const contenidoBase64 = await archivoABase64(it.archivo);
-      const payload = {
-        carpetaRaiz,                       // EvidenciasSPC_2026-06
-        ruta: it.ruta,                     // SECCION/SUBCATEGORIA
-        nombreArchivo: it.nombreArchivo,   // nombre.ext
-        rutaCompleta: `${carpetaRaiz}/${it.ruta}/${it.nombreArchivo}`,
-        contenidoBase64,
-        indice: i + 1,
-        total: lista.length
-      };
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if(!resp.ok) throw new Error('HTTP ' + resp.status);
-      enviados++;
-    } catch(err){
-      console.error('Error con', it.nombreArchivo, err);
-      fallidos.push(it.nombreArchivo);
-    }
-  }
-
-  mostrarProgreso(100, fallidos.length
-    ? `Completado con errores: ${enviados} ok, ${fallidos.length} fallidos`
-    : `✅ ${enviados} evidencias enviadas a OneDrive`);
-  btn.disabled = false;
-  toast(fallidos.length
-    ? `Enviados ${enviados}/${lista.length}. Fallaron: ${fallidos.join(', ')}`
-    : `✅ ${enviados} evidencias enviadas a OneDrive`);
+  enviando = true;
+  document.getElementById('btnOneDrive').disabled = true;
+  abrirOverlayEnviando();
+  const resultados = await enviarColeccion(url, lista, carpetaRaiz);
+  enviando = false;
+  document.getElementById('btnOneDrive').disabled = false;
+  mostrarReporte(resultados, url, carpetaRaiz);
 };
 
 /* ============================================================
