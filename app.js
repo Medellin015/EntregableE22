@@ -427,11 +427,45 @@ document.getElementById('btnOneDrive').onclick = async () => {
 /* ============================================================
    GENERAR ENTREGABLE WORD CON FORMATO INSTITUCIONAL
    ============================================================ */
+/* Descarga una imagen del repo y la escala a un ancho objetivo (px),
+   conservando su proporción. Devuelve null si no existe. */
+async function cargarImagenDoc(ruta, anchoObjetivo){
+  try {
+    const resp = await fetch(ruta, { cache: 'no-cache' });
+    if(!resp.ok) return null;
+    const blob = await resp.blob();
+    const buffer = await blob.arrayBuffer();
+    const bmp = await createImageBitmap(blob);
+    const ancho = anchoObjetivo;
+    const alto = Math.round(bmp.height * (anchoObjetivo / bmp.width));
+    bmp.close?.();
+    return { buffer, width: ancho, height: alto };
+  } catch(e){
+    console.warn('No se pudo cargar la imagen', ruta, e);
+    return null;
+  }
+}
+
 document.getElementById('btnGenerar').onclick = async () => {
   const enc = leerEncabezado();
   if(!enc.periodo || !enc.presentacion){ toast('Completa Periodo y Presentación'); return; }
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-          WidthType, BorderStyle, ShadingType, AlignmentType, HeightRule, convertInchesToTwip } = docx;
+          WidthType, BorderStyle, ShadingType, AlignmentType, HeightRule,
+          convertInchesToTwip, Header, Footer, ImageRun } = docx;
+
+  // Carga las imágenes de encabezado/pie (si existen en el repo)
+  const ANCHO_CONTENIDO = 624; // ancho útil aprox. en px (Carta, márgenes de 1")
+  const imgEncabezado = await cargarImagenDoc('assets/encabezado.png', ANCHO_CONTENIDO);
+  const imgPie = await cargarImagenDoc('assets/pie.png', ANCHO_CONTENIDO);
+
+  function imagenParrafo(img){
+    return new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [ new ImageRun({ data: img.buffer, transformation: { width: img.width, height: img.height } }) ]
+    });
+  }
+  const header = imgEncabezado ? new Header({ children:[ imagenParrafo(imgEncabezado) ] }) : undefined;
+  const footer = imgPie ? new Footer({ children:[ imagenParrafo(imgPie) ] }) : undefined;
 
   const FUENTE = 'Aptos';
   const COLOR_GRIS = 'D9D9D9';
@@ -543,6 +577,8 @@ document.getElementById('btnGenerar').onclick = async () => {
     creator:'Gestor Evidencias SPC',
     styles:{ default:{ document:{ run:{ font:FUENTE, size:22 } } } },
     sections:[{
+      ...(header ? { headers:{ default: header } } : {}),
+      ...(footer ? { footers:{ default: footer } } : {}),
       children:[
         encTabla,
         p('', {}),
