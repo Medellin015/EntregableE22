@@ -1,0 +1,421 @@
+/* ============================================================
+   Gestor de Evidencias SPC · Lógica de la aplicación
+   ============================================================ */
+
+/* ============================================================
+   CONFIGURACIÓN DE SECCIONES
+   ============================================================ */
+const SECCIONES = [
+  { id:'fortalecimiento', slug:'FORTALECIMIENTO_CIUDADANA', titulo:'FORTALECIMIENTO NUEVAS EXPRESIONES CIUDADANAS' },
+  { id:'gestion',         slug:'GESTION_PARTICIPATIVA',     titulo:'GESTIÓN PARTICIPATIVA EN EL DESARROLLO LOCAL' },
+  { id:'movilizacion',    slug:'MOVILIZACION_SOCIAL',       titulo:'DINAMIZACIÓN Y MOVILIZACIÓN SOCIAL' }
+];
+const SUBCATS = [
+  { id:'comunicacion', slug:'COMUNICACIONES', label:'Comunicación' },
+  { id:'prensa',       slug:'PRENSA',         label:'Prensa'       },
+  { id:'diseno',       slug:'DISENO',         label:'Diseño'       },
+  { id:'audiovisual',  slug:'AUDIOVISUAL',    label:'Audiovisual'  }
+];
+
+/* Estado en memoria */
+const estado = {};
+SECCIONES.forEach(s => {
+  estado[s.id] = {};
+  SUBCATS.forEach(sc => estado[s.id][sc.id] = { texto:'', archivos:[] });
+});
+
+/* ============================================================
+   NORMALIZACIÓN DE NOMBRES (≤ 20 caracteres)
+   Patrón: [Vd_]DDMMAA_DescripCorta
+   ============================================================ */
+const SIGLAS = ['PPclic','SLPC','CDPC','PP','TRI','SPC','QR','NC','BoleC','BolC','BolTRI',
+  'InfoC','InfoTRI','InfogTRI','KeyPP','EcardSLPC','ActuMicro','ActMujLider','BpSesCPDC',
+  'BpSesExtr','BolePrens','TxtMitVer','TxtEsceInst','WhApCDPC','MitVerSLPC','EscInsPart',
+  'AcompFunise','NcBlackTalent','NcFunice','VidPPclic','GuionVid','AficheQR','CamisasPP',
+  'PiezaTRI','PiezasPPClic','CronTRI','InvitComuna','ProyecC','EfectSente','SesionDesc'];
+
+const EXT_VIDEO = ['mp4','mov','avi','mkv','webm'];
+
+function quitarTildes(s){ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+
+function fechaDDMMAA(d){
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const aa = String(d.getFullYear()).slice(-2);
+  return dd+mm+aa;
+}
+
+function aCamelCaseConSiglas(texto){
+  let limpio = quitarTildes(texto).replace(/[^a-zA-Z0-9]+/g,' ').trim();
+  if(!limpio) return 'Archivo';
+  const palabras = limpio.split(/\s+/);
+  return palabras.map(p => {
+    // Verifica si la palabra coincide con alguna sigla (sin mayúsculas/minúsculas)
+    const sigla = SIGLAS.find(s => s.toLowerCase() === p.toLowerCase());
+    if(sigla) return sigla;
+    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  }).join('');
+}
+
+function normalizarNombre(nombreOriginal, fecha, esVideo, usados){
+  const sinExt = nombreOriginal.replace(/\.[^.]+$/,'');
+  const ddmmaa = fechaDDMMAA(fecha);
+  const prefijo = esVideo ? 'Vd_' : '';
+  let descrip = aCamelCaseConSiglas(sinExt);
+
+  // Sufijo numérico si hay colisión
+  let baseSinSufijo = `${prefijo}${ddmmaa}_${descrip}`;
+  let sufijo = '';
+  let intento = baseSinSufijo;
+  let n = 1;
+  while(usados.has(intento)){
+    n++;
+    sufijo = String(n);
+    intento = `${prefijo}${ddmmaa}_${descrip}${sufijo}`;
+  }
+
+  // Recortar si > 20 caracteres totales
+  let nombre = intento;
+  while(nombre.length > 20 && descrip.length > 1){
+    descrip = descrip.slice(0, descrip.length-1);
+    nombre = `${prefijo}${ddmmaa}_${descrip}${sufijo}`;
+  }
+  return nombre;
+}
+
+/* ============================================================
+   RENDER DE LA UI POR SECCIÓN
+   ============================================================ */
+const cont = document.getElementById('seccionesContainer');
+SECCIONES.forEach(sec => {
+  const det = document.createElement('details');
+  det.open = true;
+  det.className = 'seccion';
+  det.innerHTML = `
+    <summary>
+      <span><span class="seccion__dot">●</span>${sec.titulo}</span>
+      <span class="seccion__chevron">▼</span>
+    </summary>
+    <div class="seccion__body" id="cont_${sec.id}">
+      ${SUBCATS.map(sc => `
+        <div class="subcat">
+          <h3>${sc.label}</h3>
+          <label class="etiqueta">Desarrollo de las acciones (una viñeta por línea)</label>
+          <textarea data-sec="${sec.id}" data-sub="${sc.id}" data-campo="texto" rows="3"
+            placeholder="Cada línea será una viñeta en el Word"></textarea>
+
+          <label class="etiqueta">Evidencias</label>
+          <input type="file" multiple data-sec="${sec.id}" data-sub="${sc.id}" data-campo="archivos">
+
+          <table class="tabla-evid oculto" id="tabla_${sec.id}_${sc.id}">
+            <thead>
+              <tr>
+                <th>Original</th>
+                <th>Fecha</th>
+                <th>Nombre normalizado (≤20)</th>
+                <th class="centro">Largo</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody_${sec.id}_${sc.id}"></tbody>
+          </table>
+        </div>`).join('')}
+    </div>`;
+  cont.appendChild(det);
+});
+
+/* ============================================================
+   EVENT LISTENERS
+   ============================================================ */
+document.querySelectorAll('textarea[data-campo="texto"]').forEach(t => {
+  t.addEventListener('input', e => {
+    estado[e.target.dataset.sec][e.target.dataset.sub].texto = e.target.value;
+  });
+});
+
+document.querySelectorAll('input[type="file"]').forEach(inp => {
+  inp.addEventListener('change', async e => {
+    const sec = e.target.dataset.sec, sub = e.target.dataset.sub;
+    const usados = new Set(estado[sec][sub].archivos.map(a => a.nombreNormalizado));
+    for(const file of e.target.files){
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const esVideo = EXT_VIDEO.includes(ext);
+      const fecha = new Date();
+      const nomNorm = normalizarNombre(file.name, fecha, esVideo, usados);
+      usados.add(nomNorm);
+      estado[sec][sub].archivos.push({
+        nombreOriginal: file.name,
+        nombreNormalizado: nomNorm,
+        extension: ext,
+        fecha: fecha,
+        esVideo,
+        file
+      });
+    }
+    e.target.value = '';
+    refrescarTabla(sec, sub);
+  });
+});
+
+function refrescarTabla(sec, sub){
+  const tbody = document.getElementById(`tbody_${sec}_${sub}`);
+  const tabla = document.getElementById(`tabla_${sec}_${sub}`);
+  const arr = estado[sec][sub].archivos;
+  tabla.classList.toggle('oculto', arr.length===0);
+  tbody.innerHTML = arr.map((a,i) => {
+    const len = a.nombreNormalizado.length;
+    const claseBadge = len > 20 ? 'badge-rojo' : 'badge-ok';
+    const fechaStr = a.fecha.toISOString().slice(0,10);
+    return `<tr class="file-row">
+      <td>${a.nombreOriginal}</td>
+      <td><input type="date" value="${fechaStr}" onchange="cambiarFecha('${sec}','${sub}',${i},this.value)"></td>
+      <td><input value="${a.nombreNormalizado}" onchange="cambiarNombre('${sec}','${sub}',${i},this.value)"></td>
+      <td class="centro"><span class="badge ${claseBadge}">${len}</span></td>
+      <td class="centro"><button class="btn-eliminar" onclick="eliminarArchivo('${sec}','${sub}',${i})">Eliminar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function cambiarFecha(sec,sub,i,val){
+  const a = estado[sec][sub].archivos[i];
+  a.fecha = new Date(val + 'T00:00:00');
+  // Recalcular nombre conservando la edición manual si difiere mucho
+  const usados = new Set(estado[sec][sub].archivos.filter((_,j)=>j!==i).map(x=>x.nombreNormalizado));
+  a.nombreNormalizado = normalizarNombre(a.nombreOriginal, a.fecha, a.esVideo, usados);
+  refrescarTabla(sec,sub);
+}
+function cambiarNombre(sec,sub,i,val){
+  estado[sec][sub].archivos[i].nombreNormalizado = val.slice(0,20);
+  refrescarTabla(sec,sub);
+}
+function eliminarArchivo(sec,sub,i){
+  estado[sec][sub].archivos.splice(i,1);
+  refrescarTabla(sec,sub);
+}
+
+/* ============================================================
+   GUARDAR BORRADOR EN LOCALSTORAGE (sin los Files)
+   ============================================================ */
+document.getElementById('btnGuardar').onclick = () => {
+  const snapshot = { encabezado:leerEncabezado(), textos:{} };
+  SECCIONES.forEach(s => {
+    snapshot.textos[s.id] = {};
+    SUBCATS.forEach(sc => snapshot.textos[s.id][sc.id] = estado[s.id][sc.id].texto);
+  });
+  localStorage.setItem('borradorSPC', JSON.stringify(snapshot));
+  toast('Borrador guardado en el navegador ✓');
+};
+function cargarBorrador(){
+  const raw = localStorage.getItem('borradorSPC');
+  if(!raw) return;
+  try{
+    const d = JSON.parse(raw);
+    Object.entries(d.encabezado||{}).forEach(([k,v])=>{ const el=document.getElementById(k); if(el) el.value=v; });
+    SECCIONES.forEach(s => SUBCATS.forEach(sc => {
+      const t = d.textos?.[s.id]?.[sc.id] || '';
+      estado[s.id][sc.id].texto = t;
+      const ta = document.querySelector(`textarea[data-sec="${s.id}"][data-sub="${sc.id}"]`);
+      if(ta) ta.value = t;
+    }));
+  }catch(e){ console.error(e); }
+}
+cargarBorrador();
+
+function leerEncabezado(){
+  return ['proyecto','entregable','indicador','periodo','presentacion','periodoCarpeta',
+          'introduccion','proyNombre','proyCargo','revNombre','revCargo']
+    .reduce((acc,id)=>{ acc[id]=document.getElementById(id).value; return acc; },{});
+}
+
+/* ============================================================
+   GENERAR ZIP CON EVIDENCIAS RENOMBRADAS
+   ============================================================ */
+document.getElementById('btnZip').onclick = async () => {
+  const enc = leerEncabezado();
+  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06)'); return; }
+  const zip = new JSZip();
+  const raiz = zip.folder(`EvidenciasSPC_${enc.periodoCarpeta}`);
+  let total = 0;
+  SECCIONES.forEach(s => {
+    SUBCATS.forEach(sc => {
+      estado[s.id][sc.id].archivos.forEach(a => {
+        const path = `${s.slug}/${sc.slug}/${a.nombreNormalizado}.${a.extension}`;
+        raiz.file(path, a.file);
+        total++;
+      });
+    });
+  });
+  if(total===0){ toast('No hay evidencias cargadas'); return; }
+  toast(`Empaquetando ${total} evidencias...`);
+  const blob = await zip.generateAsync({type:'blob'});
+  saveAs(blob, `EvidenciasSPC_${enc.periodoCarpeta}.zip`);
+};
+
+/* ============================================================
+   GENERAR ENTREGABLE WORD CON FORMATO INSTITUCIONAL
+   ============================================================ */
+document.getElementById('btnGenerar').onclick = async () => {
+  const enc = leerEncabezado();
+  if(!enc.periodo || !enc.presentacion){ toast('Completa Periodo y Presentación'); return; }
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+          WidthType, BorderStyle, ShadingType, AlignmentType, HeightRule, convertInchesToTwip } = docx;
+
+  const FUENTE = 'Aptos';
+  const COLOR_GRIS = 'D9D9D9';
+  const bordeNeg = { style: BorderStyle.SINGLE, size: 6, color: '000000' };
+  const todosBordes = { top:bordeNeg, bottom:bordeNeg, left:bordeNeg, right:bordeNeg };
+  const sinBordes = {
+    top:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},
+    bottom:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},
+    left:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},
+    right:{style:BorderStyle.NONE,size:0,color:'FFFFFF'}
+  };
+
+  function p(text, {bold=false, size=22, align=AlignmentType.JUSTIFIED, bullet=false, indent=null}={}){
+    const opts = { children:[new TextRun({ text, bold, font:FUENTE, size })], alignment:align };
+    if(bullet) opts.bullet = { level:0 };
+    if(indent) opts.indent = indent;
+    return new Paragraph(opts);
+  }
+  function celdaHeader(text){
+    return new TableCell({
+      shading:{ type:ShadingType.CLEAR, fill:COLOR_GRIS, color:'auto' },
+      width:{ size:50, type:WidthType.PERCENTAGE },
+      borders: todosBordes,
+      children:[ new Paragraph({ alignment:AlignmentType.CENTER,
+        children:[ new TextRun({ text, bold:true, font:FUENTE, size:22 }) ] }) ]
+    });
+  }
+  function celda(parrafos, ancho=50){
+    return new TableCell({
+      width:{ size:ancho, type:WidthType.PERCENTAGE },
+      borders: todosBordes,
+      children: parrafos
+    });
+  }
+
+  // ----- Encabezado -----
+  const encTabla = new Table({
+    width:{ size:100, type:WidthType.PERCENTAGE },
+    rows:[
+      ['Proyecto', enc.proyecto],
+      ['Entregable', enc.entregable],
+      ['Indicador', enc.indicador],
+      ['Periodo', enc.periodo],
+      ['Presentación', enc.presentacion]
+    ].map(([k,v]) => new TableRow({ children:[
+      new TableCell({ width:{size:20,type:WidthType.PERCENTAGE}, borders:todosBordes,
+        children:[ new Paragraph({ children:[new TextRun({text:k,bold:true,font:FUENTE,size:22})] }) ] }),
+      new TableCell({ width:{size:80,type:WidthType.PERCENTAGE}, borders:todosBordes,
+        children:[ new Paragraph({ alignment:AlignmentType.JUSTIFIED,
+          children:[new TextRun({text:v,font:FUENTE,size:22})] }) ] })
+    ]}))
+  });
+
+  // ----- Función: tabla de acciones por sección -----
+  function tablaSeccion(secId){
+    const izq = [];
+    const der = [];
+    SUBCATS.forEach(sc => {
+      const data = estado[secId][sc.id];
+      const tieneTexto = (data.texto||'').trim().length>0;
+      const tieneArch = data.archivos.length>0;
+      if(!tieneTexto && !tieneArch) return;
+      // Columna izquierda
+      izq.push(p(sc.label+':', {bold:true}));
+      if(tieneTexto){
+        data.texto.split('\n').filter(x=>x.trim()).forEach(linea => {
+          izq.push(p(linea.trim(), {bullet:true}));
+        });
+      }
+      izq.push(p('', {}));
+      // Columna derecha
+      der.push(p(sc.label+':', {bold:true}));
+      data.archivos.forEach(a => der.push(p(a.nombreNormalizado, {})));
+      der.push(p('', {}));
+    });
+    if(izq.length===0) izq.push(p('Sin acciones registradas', {}));
+    if(der.length===0) der.push(p('Sin evidencias', {}));
+    return new Table({
+      width:{ size:100, type:WidthType.PERCENTAGE },
+      rows:[
+        new TableRow({ children:[celdaHeader('DESARROLLO DE LAS ACCIONES'), celdaHeader('LISTADO DE ANEXOS')] }),
+        new TableRow({ children:[celda(izq), celda(der)] })
+      ]
+    });
+  }
+
+  // ----- Firmas -----
+  const firmas = new Table({
+    width:{ size:100, type:WidthType.PERCENTAGE },
+    rows:[ new TableRow({ children:[
+      new TableCell({ width:{size:50,type:WidthType.PERCENTAGE}, borders:sinBordes, children:[
+        new Paragraph({ children:[new TextRun({text:'Proyectó:',bold:true,font:FUENTE,size:22})] }),
+        new Paragraph({}),new Paragraph({}),new Paragraph({}),
+        new Paragraph({ children:[new TextRun({text:(enc.proyNombre||'').toUpperCase(),bold:true,font:FUENTE,size:22})] }),
+        new Paragraph({ children:[new TextRun({text:enc.proyCargo||'',bold:true,font:FUENTE,size:22})] })
+      ]}),
+      new TableCell({ width:{size:50,type:WidthType.PERCENTAGE}, borders:sinBordes, children:[
+        new Paragraph({ children:[new TextRun({text:'Revisó:',bold:true,font:FUENTE,size:22})] }),
+        new Paragraph({}),new Paragraph({}),new Paragraph({}),
+        new Paragraph({ children:[new TextRun({text:(enc.revNombre||'').toUpperCase(),bold:true,font:FUENTE,size:22})] }),
+        new Paragraph({ children:[new TextRun({text:enc.revCargo||'',bold:true,font:FUENTE,size:22})] })
+      ]})
+    ]})]
+  });
+
+  // ----- Documento final -----
+  const intro = (enc.introduccion||'').replace('[PERIODO]', enc.periodo);
+  const doc = new Document({
+    creator:'Gestor Evidencias SPC',
+    styles:{ default:{ document:{ run:{ font:FUENTE, size:22 } } } },
+    sections:[{
+      children:[
+        encTabla,
+        p('', {}),
+        p('1. INTRODUCCIÓN:', {bold:true, size:22}),
+        p('', {}),
+        p(intro, {}),
+        p('', {}),
+        p('A continuación, se desglosan las actividades, avances y resultados obtenidos.', {}),
+        p('', {}),
+        p('2. ACCIONES DESARROLLADAS EN EL PERIODO REPORTADO:', {bold:true}),
+        p('', {}),
+        p('● '+SECCIONES[0].titulo+':', {bold:true}),
+        tablaSeccion('fortalecimiento'),
+        p('', {}),
+        p('● '+SECCIONES[1].titulo+':', {bold:true}),
+        tablaSeccion('gestion'),
+        p('', {}),
+        p('● '+SECCIONES[2].titulo+':', {bold:true}),
+        tablaSeccion('movilizacion'),
+        p('', {}),
+        p('Conclusiones:', {bold:true}),
+        p('', {}),p('', {}),p('', {}),
+        firmas
+      ]
+    }]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const fecha = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  saveAs(blob, `Informe_Evidencias_${fecha}.docx`);
+  toast('✅ Informe Word generado');
+};
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('oculto');
+  // Forzar reflujo para reiniciar la animación
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(window._tt);
+  window._tt = setTimeout(()=>{
+    t.classList.remove('show');
+    setTimeout(()=>t.classList.add('oculto'), 350);
+  }, 3500);
+}
