@@ -356,9 +356,8 @@ function archivoABase64(file){
   });
 }
 
-/* URL del flujo HTTP de Power Automate.
-   Pega aquí la URL cuando la tengas (queda fija en el código). */
-const FLOW_URL = '';
+/* URL del flujo HTTP de Power Automate. */
+const FLOW_URL = 'https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2f03995cb40e4423a838f3c1ed26ac6e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=PfgR7ifyKN4P3nRV6EDLCahGiwZbt-L1vbolCyqSJzs';
 
 /* Aviso del navegador si intentan cerrar/recargar durante el envío */
 window.addEventListener('beforeunload', (e) => {
@@ -403,9 +402,11 @@ async function enviarUna(url, it, carpetaRaiz, indice, total){
     contenidoBase64,
     indice, total
   };
+  // Content-Type text/plain => petición "simple", evita el preflight de CORS.
+  // El cuerpo sigue siendo JSON; en el flujo se parsea con json(triggerBody()).
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body: JSON.stringify(payload)
   });
   if(!resp.ok) throw new Error('HTTP ' + resp.status);
