@@ -383,6 +383,8 @@ function recolectarEvidencias(carpetaRaiz){
   SECCIONES.forEach(s => SUBCATS.forEach(sc => {
     estado[s.id][sc.id].archivos.forEach(a => lista.push({
       ruta: `${s.slug}/${sc.slug}`,
+      seccion: s.titulo,        // nombre legible de la sección
+      subcategoria: sc.label,   // nombre legible (Prensa, Diseño, ...)
       nombreArchivo: `${a.nombreNormalizado}.${a.extension}`,
       rutaCompleta: `${carpetaRaiz}/${s.slug}/${sc.slug}/${a.nombreNormalizado}.${a.extension}`,
       archivo: a.file
@@ -396,7 +398,9 @@ async function enviarUna(url, it, carpetaRaiz, indice, total){
   const contenidoBase64 = await archivoABase64(it.archivo);
   const payload = {
     carpetaRaiz,                       // EvidenciasSPC_2026-06
-    ruta: it.ruta,                     // SECCION/SUBCATEGORIA
+    ruta: it.ruta,                     // SECCION/SUBCATEGORIA (slugs para carpetas)
+    seccion: it.seccion,               // nombre legible de la sección
+    subcategoria: it.subcategoria,     // nombre legible (Prensa, Diseño, ...)
     nombreArchivo: it.nombreArchivo,   // nombre.ext (recortado a ≤20 + extensión)
     rutaCompleta: it.rutaCompleta,
     contenidoBase64,
