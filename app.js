@@ -356,10 +356,9 @@ function archivoABase64(file){
   });
 }
 
-/* Recuerda la URL del flujo */
-const flowInput = document.getElementById('flowUrl');
-flowInput.value = localStorage.getItem('flowUrlSPC') || '';
-flowInput.addEventListener('change', () => localStorage.setItem('flowUrlSPC', flowInput.value.trim()));
+/* URL del flujo HTTP de Power Automate.
+   Pega aquí la URL cuando la tengas (queda fija en el código). */
+const FLOW_URL = '';
 
 /* Aviso del navegador si intentan cerrar/recargar durante el envío */
 window.addEventListener('beforeunload', (e) => {
@@ -463,26 +462,28 @@ function mostrarReporte(resultados, url, carpetaRaiz){
   toast(fail.length ? `Enviadas ${ok.length}/${resultados.length}` : `✅ ${ok.length} evidencias enviadas`);
 }
 
-document.getElementById('btnOneDrive').onclick = async () => {
+/* Envía a OneDrive todas las evidencias cargadas. Se ejecuta junto con
+   la generación del Word. Si no hay URL configurada o no hay archivos,
+   no hace nada (no interrumpe la generación del documento). */
+async function enviarEvidenciasAOneDrive(enc){
   if(enviando) return;
-  const enc = leerEncabezado();
-  const url = flowInput.value.trim();
-  if(!url){ toast('Pega la URL del flujo de Power Automate'); return; }
-  if(!/^https:\/\//i.test(url)){ toast('La URL del flujo debe empezar por https://'); return; }
-  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06)'); return; }
+  const url = (FLOW_URL || '').trim();
+  if(!url){
+    console.warn('FLOW_URL vacía: no se envían evidencias a OneDrive.');
+    return;
+  }
+  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06) para enviar a OneDrive'); return; }
 
   const carpetaRaiz = `EvidenciasSPC_${enc.periodoCarpeta}`;
   const lista = recolectarEvidencias(carpetaRaiz);
-  if(lista.length === 0){ toast('No hay evidencias cargadas'); return; }
+  if(lista.length === 0) return; // no hay archivos que enviar
 
   enviando = true;
-  document.getElementById('btnOneDrive').disabled = true;
   abrirOverlayEnviando();
   const resultados = await enviarColeccion(url, lista, carpetaRaiz);
   enviando = false;
-  document.getElementById('btnOneDrive').disabled = false;
   mostrarReporte(resultados, url, carpetaRaiz);
-};
+}
 
 /* ============================================================
    GENERAR ENTREGABLE WORD CON FORMATO INSTITUCIONAL
@@ -681,6 +682,9 @@ document.getElementById('btnGenerar').onclick = async () => {
   const fecha = new Date().toISOString().slice(0,10).replace(/-/g,'');
   saveAs(blob, `Informe_Evidencias_${fecha}.docx`);
   toast('✅ Informe Word generado');
+
+  // Tras generar el Word, enviar también las evidencias a OneDrive
+  await enviarEvidenciasAOneDrive(enc);
 };
 
 /* ============================================================
