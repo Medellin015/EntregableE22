@@ -21,8 +21,12 @@ const SUBCATS = [
 const estado = {};
 SECCIONES.forEach(s => {
   estado[s.id] = {};
-  SUBCATS.forEach(sc => estado[s.id][sc.id] = { texto:'', archivos:[] });
+  SUBCATS.forEach(sc => estado[s.id][sc.id] = { texto:'', archivos:[], enlaces:[] });
 });
+
+/* Peso máximo permitido por archivo. Por encima de esto se rechaza
+   y se debe adjuntar un enlace al archivo en su lugar. */
+const LIMITE_MB = 20;
 
 /* ============================================================
    NORMALIZACIÓN DE NOMBRES (≤ 20 caracteres)
@@ -110,8 +114,17 @@ SECCIONES.forEach(sec => {
           <label class="etiqueta">Evidencias</label>
           <div class="dropzone" data-sec="${sec.id}" data-sub="${sc.id}">
             <input type="file" multiple data-sec="${sec.id}" data-sub="${sc.id}" data-campo="archivos">
-            <span class="dropzone__hint">📎 <b>Arrastra aquí</b> tus archivos o haz clic para seleccionarlos</span>
+            <span class="dropzone__hint">📎 <b>Arrastra aquí</b> tus archivos o haz clic para seleccionarlos<br>
+              <span class="dropzone__aviso">⚠️ Máximo <b>${LIMITE_MB} MB</b> por archivo. Si pesa más, agrégalo como enlace abajo.</span></span>
           </div>
+
+          <label class="etiqueta">Enlaces a archivos pesados (más de ${LIMITE_MB} MB)</label>
+          <div class="enlace-add" data-sec="${sec.id}" data-sub="${sc.id}">
+            <input type="text" class="enlace-titulo" placeholder="Descripción (ej. Video evento PP)">
+            <input type="url" class="enlace-url" placeholder="https://enlace-al-archivo (OneDrive, Drive, YouTube...)">
+            <button type="button" class="btn btn--azul btn-enlace" data-sec="${sec.id}" data-sub="${sc.id}">➕ Agregar enlace</button>
+          </div>
+          <div class="enlaces-lista" id="enlaces_${sec.id}_${sc.id}"></div>
 
           <table class="tabla-evid oculto" id="tabla_${sec.id}_${sc.id}">
             <thead>
@@ -141,7 +154,13 @@ document.querySelectorAll('textarea[data-campo="texto"]').forEach(t => {
 
 function agregarArchivos(sec, sub, fileList){
   const usados = new Set(estado[sec][sub].archivos.map(a => a.nombreNormalizado));
+  const rechazados = [];
   for(const file of fileList){
+    // Rechazar archivos que superan el límite de peso
+    if(file.size > LIMITE_MB * 1024 * 1024){
+      rechazados.push(file.name);
+      continue;
+    }
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     const esVideo = EXT_VIDEO.includes(ext);
     const fecha = new Date();
@@ -155,6 +174,9 @@ function agregarArchivos(sec, sub, fileList){
       esVideo,
       file
     });
+  }
+  if(rechazados.length){
+    toast(`Supera ${LIMITE_MB} MB (agrégalo como enlace): ${rechazados.join(', ')}`);
   }
   refrescarTabla(sec, sub);
 }
@@ -175,6 +197,45 @@ document.querySelectorAll('.dropzone').forEach(dz => {
   dz.addEventListener('drop', e => {
     if(e.dataTransfer?.files?.length){
       agregarArchivos(dz.dataset.sec, dz.dataset.sub, e.dataTransfer.files);
+    }
+  });
+});
+
+/* ============================================================
+   ENLACES A ARCHIVOS PESADOS
+   ============================================================ */
+function agregarEnlace(sec, sub, titulo, url){
+  url = (url || '').trim();
+  if(!url){ toast('Pega el enlace del archivo'); return false; }
+  if(!/^https?:\/\//i.test(url)){ toast('El enlace debe empezar por http:// o https://'); return false; }
+  estado[sec][sub].enlaces.push({ titulo:(titulo || '').trim(), url });
+  refrescarEnlaces(sec, sub);
+  return true;
+}
+function eliminarEnlace(sec, sub, i){
+  estado[sec][sub].enlaces.splice(i, 1);
+  refrescarEnlaces(sec, sub);
+}
+function refrescarEnlaces(sec, sub){
+  const cont = document.getElementById(`enlaces_${sec}_${sub}`);
+  if(!cont) return;
+  const arr = estado[sec][sub].enlaces;
+  cont.innerHTML = arr.map((e, i) => `
+    <div class="enlace-item">
+      <span class="enlace-ico">🔗</span>
+      <a class="enlace-link" href="${e.url}" target="_blank" rel="noopener" title="${e.url}">${e.titulo || e.url}</a>
+      <button class="btn-eliminar" onclick="eliminarEnlace('${sec}','${sub}',${i})">Eliminar</button>
+    </div>`).join('');
+  actualizarMetricas();
+}
+
+document.querySelectorAll('.btn-enlace').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const grupo = btn.closest('.enlace-add');
+    const tit = grupo.querySelector('.enlace-titulo');
+    const u = grupo.querySelector('.enlace-url');
+    if(agregarEnlace(btn.dataset.sec, btn.dataset.sub, tit.value, u.value)){
+      tit.value = ''; u.value = '';
     }
   });
 });
@@ -208,7 +269,7 @@ function actualizarMetricas(){
     let porSeccion = 0;
     SUBCATS.forEach(sc => {
       const arr = estado[s.id][sc.id].archivos;
-      porSeccion += arr.length;
+      porSeccion += arr.length + estado[s.id][sc.id].enlaces.length;
       arr.forEach(a => { if(a.nombreNormalizado.length > 20) alertas++; });
     });
     totalArchivos += porSeccion;
@@ -243,10 +304,14 @@ function eliminarArchivo(sec,sub,i){
    GUARDAR BORRADOR EN LOCALSTORAGE (sin los Files)
    ============================================================ */
 document.getElementById('btnGuardar').onclick = () => {
-  const snapshot = { encabezado:leerEncabezado(), textos:{} };
+  const snapshot = { encabezado:leerEncabezado(), textos:{}, enlaces:{} };
   SECCIONES.forEach(s => {
     snapshot.textos[s.id] = {};
-    SUBCATS.forEach(sc => snapshot.textos[s.id][sc.id] = estado[s.id][sc.id].texto);
+    snapshot.enlaces[s.id] = {};
+    SUBCATS.forEach(sc => {
+      snapshot.textos[s.id][sc.id] = estado[s.id][sc.id].texto;
+      snapshot.enlaces[s.id][sc.id] = estado[s.id][sc.id].enlaces;
+    });
   });
   localStorage.setItem('borradorSPC', JSON.stringify(snapshot));
   toast('Borrador guardado en el navegador ✓');
@@ -262,6 +327,9 @@ function cargarBorrador(){
       estado[s.id][sc.id].texto = t;
       const ta = document.querySelector(`textarea[data-sec="${s.id}"][data-sub="${sc.id}"]`);
       if(ta) ta.value = t;
+      const en = d.enlaces?.[s.id]?.[sc.id] || [];
+      estado[s.id][sc.id].enlaces = Array.isArray(en) ? en : [];
+      refrescarEnlaces(s.id, sc.id);
     }));
   }catch(e){ console.error(e); }
 }
@@ -276,8 +344,7 @@ function leerEncabezado(){
 /* ============================================================
    ENVÍO A ONEDRIVE VÍA POWER AUTOMATE (un archivo por request)
    ============================================================ */
-const LIMITE_AVISO_MB = 100; // aviso para archivos grandes (riesgo de memoria/timeout)
-let enviando = false;        // bloquea cierre y doble clic durante el envío
+let enviando = false; // bloquea cierre y doble clic durante el envío
 
 /* Convierte un File a base64 (sin el prefijo data:...;base64,) */
 function archivoABase64(file){
@@ -408,13 +475,6 @@ document.getElementById('btnOneDrive').onclick = async () => {
   const lista = recolectarEvidencias(carpetaRaiz);
   if(lista.length === 0){ toast('No hay evidencias cargadas'); return; }
 
-  const grandes = lista.filter(x => x.archivo.size > LIMITE_AVISO_MB * 1024 * 1024);
-  if(grandes.length){
-    const ok = confirm(`${grandes.length} archivo(s) superan ${LIMITE_AVISO_MB} MB. ` +
-      `Power Automate puede rechazarlos o tardar mucho. ¿Continuar de todos modos?`);
-    if(!ok) return;
-  }
-
   enviando = true;
   document.getElementById('btnOneDrive').disabled = true;
   abrirOverlayEnviando();
@@ -451,7 +511,16 @@ document.getElementById('btnGenerar').onclick = async () => {
   if(!enc.periodo || !enc.presentacion){ toast('Completa Periodo y Presentación'); return; }
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
           WidthType, BorderStyle, ShadingType, AlignmentType, HeightRule,
-          convertInchesToTwip, Header, Footer, ImageRun } = docx;
+          convertInchesToTwip, Header, Footer, ImageRun, ExternalHyperlink } = docx;
+
+  // Párrafo con un hipervínculo (para los enlaces a archivos pesados)
+  function parrafoEnlace(titulo, url){
+    return new Paragraph({ children:[ new ExternalHyperlink({
+      link: url,
+      children:[ new TextRun({ text: titulo ? `${titulo}: ${url}` : url,
+        color:'0563C1', underline:{}, font:'Aptos', size:22 }) ]
+    }) ] });
+  }
 
   // Carga las imágenes de encabezado/pie (si existen en el repo)
   const ANCHO_CONTENIDO = 624; // ancho útil aprox. en px (Carta, márgenes de 1")
@@ -527,7 +596,8 @@ document.getElementById('btnGenerar').onclick = async () => {
       const data = estado[secId][sc.id];
       const tieneTexto = (data.texto||'').trim().length>0;
       const tieneArch = data.archivos.length>0;
-      if(!tieneTexto && !tieneArch) return;
+      const tieneEnlaces = data.enlaces.length>0;
+      if(!tieneTexto && !tieneArch && !tieneEnlaces) return;
       // Columna izquierda
       izq.push(p(sc.label+':', {bold:true}));
       if(tieneTexto){
@@ -536,9 +606,10 @@ document.getElementById('btnGenerar').onclick = async () => {
         });
       }
       izq.push(p('', {}));
-      // Columna derecha
+      // Columna derecha: archivos + enlaces a archivos pesados
       der.push(p(sc.label+':', {bold:true}));
       data.archivos.forEach(a => der.push(p(a.nombreNormalizado, {})));
+      data.enlaces.forEach(e => der.push(parrafoEnlace(e.titulo, e.url)));
       der.push(p('', {}));
     });
     if(izq.length===0) izq.push(p('Sin acciones registradas', {}));
