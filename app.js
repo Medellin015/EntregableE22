@@ -393,6 +393,24 @@ function recolectarEvidencias(carpetaRaiz){
   return lista;
 }
 
+/* POST del cuerpo JSON al flujo con un Content-Type dado */
+function postFlow(url, body, contentType){
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body
+  });
+}
+
+/* Lee el cuerpo de la respuesta del flujo para incluirlo en el error
+   (Power Automate suele devolver el motivo real del 400 en el cuerpo). */
+async function detalleError(resp){
+  try {
+    const txt = (await resp.text() || '').trim();
+    return txt ? ' – ' + txt.slice(0, 300) : '';
+  } catch(_){ return ''; }
+}
+
 /* Envía una evidencia individual al flujo */
 async function enviarUna(url, it, carpetaRaiz, indice, total){
   const contenidoBase64 = await archivoABase64(it.archivo);
@@ -406,14 +424,24 @@ async function enviarUna(url, it, carpetaRaiz, indice, total){
     contenidoBase64,
     indice, total
   };
-  // Content-Type text/plain => petición "simple", evita el preflight de CORS.
-  // El cuerpo sigue siendo JSON; en el flujo se parsea con json(triggerBody()).
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-    body: JSON.stringify(payload)
-  });
-  if(!resp.ok) throw new Error('HTTP ' + resp.status);
+  const body = JSON.stringify(payload);
+
+  // 1) Intento como petición "simple" (text/plain): no dispara preflight CORS.
+  //    El cuerpo es JSON; el flujo lo parsea con json(triggerBody()).
+  let resp = await postFlow(url, body, 'text/plain;charset=UTF-8');
+
+  // 2) Si el disparador del flujo exige application/json (rechaza text/plain
+  //    con HTTP 400 por el Content-Type), reintentamos con ese tipo. Esto
+  //    provoca un preflight CORS, que Power Automate responde para estos
+  //    endpoints. Si el preflight se bloquea, conservamos el 400 original.
+  if(resp.status === 400){
+    try {
+      const respJson = await postFlow(url, body, 'application/json');
+      resp = respJson;
+    } catch(_){ /* CORS bloqueó el preflight: se mantiene la respuesta previa */ }
+  }
+
+  if(!resp.ok) throw new Error('HTTP ' + resp.status + (await detalleError(resp)));
 }
 
 /* Recorre y envía una colección, devolviendo resultados por archivo */
