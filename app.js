@@ -331,8 +331,8 @@ function aplicarEntregable(i){
 function initEntregables(){
   const sel = document.getElementById('entregable');
   if(!sel) return;
-  // La etiqueta visible distingue por proyecto (el texto del entregable es igual en los 3)
-  sel.innerHTML = ENTREGABLES.map((e,i) => `<option value="${i}">${e.proyecto}</option>`).join('');
+  // La etiqueta visible muestra el número del entregable (el proyecto se rellena aparte)
+  sel.innerHTML = ENTREGABLES.map((e,i) => `<option value="${i}">Entregable N° ${e.no}</option>`).join('');
   sel.addEventListener('change', () => aplicarEntregable(Number(sel.value)));
   // Selección inicial: por defecto el proyecto 240193 (Presupuestación PP)
   sel.value = '1';
