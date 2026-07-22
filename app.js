@@ -348,8 +348,10 @@ function renderIntro(){
    que la introducción siga siendo dinámica tras una edición manual. */
 function reTokenizarIntro(texto){
   let t = texto;
-  if(subsecretariaActual) t = t.split(subsecretariaActual).join('[SUBSECRETARIA]');
-  if(periodoActual)       t = t.split(periodoActual).join('[PERIODO]');
+  // Re-inserta el marcador para cualquier subsecretaría conocida (no solo la
+  // actual), así también se recuperan borradores previos que traían el texto fijo.
+  ENTREGABLES.forEach(e => { if(e.subsecretaria) t = t.split(e.subsecretaria).join('[SUBSECRETARIA]'); });
+  if(periodoActual) t = t.split(periodoActual).join('[PERIODO]');
   return t;
 }
 if(introEl){
