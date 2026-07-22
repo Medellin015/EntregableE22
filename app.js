@@ -308,7 +308,7 @@ function eliminarArchivo(sec,sub,i){
    ============================================================ */
 const ENTREGABLES = [
   { no:1,  proyecto:'240187: Desarrollo de estrategias de formación Ciudadana de participación incidente.',
-           subsecretaria:'Unidad Administrativa',
+           subsecretaria:'Subsecretaría de Formación y Participación Ciudadana',
            entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' },
   { no:12, proyecto:'240193: Mejoramiento de la Presupuestación Participativa y el Desarrollo Local.',
            subsecretaria:'Subsecretaría de Planeación Local y Presupuesto Participativo (PL y PP)',
@@ -368,8 +368,10 @@ if(periodoEl){
 function aplicarEntregable(i, render=true){
   const e = ENTREGABLES[i];
   if(!e) return;
-  const proy = document.getElementById('proyecto');
-  if(proy) proy.value = e.proyecto;
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v; };
+  set('proyecto', e.proyecto);
+  set('subsecretaria', e.subsecretaria || '');
+  set('entregableNombre', e.entregable || '');
   subsecretariaActual = e.subsecretaria || '';
   if(render) renderIntro();
 }
