@@ -258,7 +258,7 @@ main {
 label.campo { display: block; font-weight: 600; color: var(--texto); }
 label.campo span { display: block; margin-bottom: .3rem; font-size: .82rem; color: var(--texto-suave); }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   font-family: inherit;
   font-size: .88rem;
@@ -270,13 +270,17 @@ input, textarea {
   transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 input::placeholder, textarea::placeholder { color: var(--texto-suave); opacity: .7; }
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   outline: none;
   background: var(--superficie);
   border-color: var(--azul-500);
   box-shadow: 0 0 0 4px rgba(59, 130, 246, .16);
 }
 textarea { resize: vertical; }
+select { cursor: pointer; }
+/* Campo de solo lectura (Proyecto, que se rellena automáticamente) */
+input[readonly] { background: var(--superficie); opacity: .85; cursor: default; }
+label.campo span small { font-weight: 400; color: var(--texto-suave); }
 
 /* ---------- Secciones desplegables ---------- */
 details.seccion {
