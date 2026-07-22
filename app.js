@@ -444,7 +444,7 @@ cargarBorrador();
 
 function leerEncabezado(){
   const enc = ['proyecto','entregable','periodo','presentacion',
-          'introduccion','proyNombre','proyCargo','revNombre','revCargo']
+          'introduccion','conclusiones','proyNombre','proyCargo','revNombre','revCargo']
     .reduce((acc,id)=>{ acc[id]=document.getElementById(id).value; return acc; },{});
   // 'entregable' es un <select> cuyo value es el índice; guardamos ese índice
   // aparte y convertimos el campo al texto real del entregable para el Word.
@@ -793,6 +793,11 @@ document.getElementById('btnGenerar').onclick = async () => {
   const intro = (enc.introduccion||'')
     .replace(/\[SUBSECRETARIA\]/g, subsecretariaActual || '')
     .replace(/\[PERIODO\]/g, enc.periodo || '');
+  // Conclusiones: cada línea no vacía se vuelve una viñeta al final del documento.
+  const lineasConcl = (enc.conclusiones||'').split('\n').map(x => x.trim()).filter(Boolean);
+  const conclusionesParrafos = lineasConcl.length
+    ? lineasConcl.map(l => p(l, {bullet:true}))
+    : [p('', {}), p('', {})];
   const doc = new Document({
     creator:'Gestor Evidencias SPC',
     styles:{ default:{ document:{ run:{ font:FUENTE, size:22 } } } },
@@ -820,7 +825,9 @@ document.getElementById('btnGenerar').onclick = async () => {
         tablaSeccion('movilizacion'),
         p('', {}),
         p('Conclusiones:', {bold:true}),
-        p('', {}),p('', {}),p('', {}),
+        p('', {}),
+        ...conclusionesParrafos,
+        p('', {}),
         firmas
       ]
     }]
