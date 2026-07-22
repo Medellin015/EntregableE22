@@ -301,6 +301,46 @@ function eliminarArchivo(sec,sub,i){
 }
 
 /* ============================================================
+   ENTREGABLES DEL CRONOGRAMA
+   La lista de "Entregable" solo tiene estos 3. Al elegir uno,
+   el campo "Proyecto" se rellena automáticamente.
+   ============================================================ */
+const ENTREGABLES = [
+  { no:1,  proyecto:'240187: Desarrollo de estrategias de formación Ciudadana de participación incidente.',
+           entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' },
+  { no:12, proyecto:'240193: Mejoramiento de la Presupuestación Participativa y el Desarrollo Local.',
+           entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' },
+  { no:38, proyecto:'240184: Apoyo técnico y material a las Juntas Administradoras Locales.',
+           entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' }
+];
+
+/* Devuelve el índice del entregable actualmente seleccionado */
+function entregableSeleccionado(){
+  const sel = document.getElementById('entregable');
+  const i = Number(sel && sel.value);
+  return ENTREGABLES[i] ? i : -1;
+}
+
+/* Rellena el campo Proyecto según el entregable elegido */
+function aplicarEntregable(i){
+  const e = ENTREGABLES[i];
+  const proy = document.getElementById('proyecto');
+  if(e && proy) proy.value = e.proyecto;
+}
+
+function initEntregables(){
+  const sel = document.getElementById('entregable');
+  if(!sel) return;
+  // La etiqueta visible distingue por proyecto (el texto del entregable es igual en los 3)
+  sel.innerHTML = ENTREGABLES.map((e,i) => `<option value="${i}">${e.proyecto}</option>`).join('');
+  sel.addEventListener('change', () => aplicarEntregable(Number(sel.value)));
+  // Selección inicial: por defecto el proyecto 240193 (Presupuestación PP)
+  sel.value = '1';
+  aplicarEntregable(1);
+}
+initEntregables();
+
+/* ============================================================
    GUARDAR BORRADOR EN LOCALSTORAGE (sin los Files)
    ============================================================ */
 document.getElementById('btnGuardar').onclick = () => {
@@ -321,7 +361,18 @@ function cargarBorrador(){
   if(!raw) return;
   try{
     const d = JSON.parse(raw);
-    Object.entries(d.encabezado||{}).forEach(([k,v])=>{ const el=document.getElementById(k); if(el) el.value=v; });
+    Object.entries(d.encabezado||{}).forEach(([k,v])=>{
+      // El entregable (select) y el proyecto (automático) se restauran por índice.
+      if(k === 'entregable' || k === 'entregableIdx' || k === 'proyecto') return;
+      const el=document.getElementById(k); if(el) el.value=v;
+    });
+    // Restaurar el entregable seleccionado y su proyecto asociado
+    const sel = document.getElementById('entregable');
+    const idx = Number(d.encabezado?.entregableIdx);
+    if(sel && ENTREGABLES[idx]){
+      sel.value = String(idx);
+      aplicarEntregable(idx);
+    }
     SECCIONES.forEach(s => SUBCATS.forEach(sc => {
       const t = d.textos?.[s.id]?.[sc.id] || '';
       estado[s.id][sc.id].texto = t;
@@ -336,9 +387,15 @@ function cargarBorrador(){
 cargarBorrador();
 
 function leerEncabezado(){
-  return ['proyecto','entregable','indicador','periodo','presentacion','periodoCarpeta',
+  const enc = ['proyecto','entregable','periodo','presentacion','periodoCarpeta',
           'introduccion','proyNombre','proyCargo','revNombre','revCargo']
     .reduce((acc,id)=>{ acc[id]=document.getElementById(id).value; return acc; },{});
+  // 'entregable' es un <select> cuyo value es el índice; guardamos ese índice
+  // aparte y convertimos el campo al texto real del entregable para el Word.
+  const i = entregableSeleccionado();
+  enc.entregableIdx = i;
+  if(i >= 0) enc.entregable = ENTREGABLES[i].entregable;
+  return enc;
 }
 
 /* ============================================================
@@ -610,7 +667,6 @@ document.getElementById('btnGenerar').onclick = async () => {
     rows:[
       ['Proyecto', enc.proyecto],
       ['Entregable', enc.entregable],
-      ['Indicador', enc.indicador],
       ['Periodo', enc.periodo],
       ['Presentación', enc.presentacion]
     ].map(([k,v]) => new TableRow({ children:[
