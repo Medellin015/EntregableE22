@@ -303,14 +303,18 @@ function eliminarArchivo(sec,sub,i){
 /* ============================================================
    ENTREGABLES DEL CRONOGRAMA
    La lista de "Entregable" solo tiene estos 3. Al elegir uno,
-   el campo "Proyecto" se rellena automáticamente.
+   el campo "Proyecto" y la Subsecretaría de la introducción se
+   rellenan automáticamente.
    ============================================================ */
 const ENTREGABLES = [
   { no:1,  proyecto:'240187: Desarrollo de estrategias de formación Ciudadana de participación incidente.',
+           subsecretaria:'Unidad Administrativa',
            entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' },
   { no:12, proyecto:'240193: Mejoramiento de la Presupuestación Participativa y el Desarrollo Local.',
+           subsecretaria:'Subsecretaría de Planeación Local y Presupuesto Participativo (PL y PP)',
            entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' },
   { no:38, proyecto:'240184: Apoyo técnico y material a las Juntas Administradoras Locales.',
+           subsecretaria:'Subsecretaría de Organización Social',
            entregable:'Informe que dé cuenta de la planeación, ejecución y seguimiento de las acciones comunicacionales.' }
 ];
 
@@ -321,11 +325,51 @@ function entregableSeleccionado(){
   return ENTREGABLES[i] ? i : -1;
 }
 
-/* Rellena el campo Proyecto según el entregable elegido */
-function aplicarEntregable(i){
+/* ------------------------------------------------------------
+   INTRODUCCIÓN DINÁMICA
+   El texto es una plantilla con dos marcadores:
+     [SUBSECRETARIA] → cambia según el entregable elegido
+     [PERIODO]       → se rellena con el campo "Periodo"
+   Se conserva la plantilla (con marcadores) aparte del texto
+   visible, para poder re-renderizar cuando cambie cualquiera.
+   ------------------------------------------------------------ */
+const introEl = document.getElementById('introduccion');
+let plantillaIntro = introEl ? introEl.value : '';  // texto con marcadores
+let subsecretariaActual = '';
+let periodoActual = '';
+
+function renderIntro(){
+  if(!introEl) return;
+  introEl.value = plantillaIntro
+    .replace(/\[SUBSECRETARIA\]/g, subsecretariaActual || '[SUBSECRETARIA]')
+    .replace(/\[PERIODO\]/g, periodoActual || '[PERIODO]');
+}
+/* Vuelve a insertar los marcadores en un texto ya sustituido, para
+   que la introducción siga siendo dinámica tras una edición manual. */
+function reTokenizarIntro(texto){
+  let t = texto;
+  if(subsecretariaActual) t = t.split(subsecretariaActual).join('[SUBSECRETARIA]');
+  if(periodoActual)       t = t.split(periodoActual).join('[PERIODO]');
+  return t;
+}
+if(introEl){
+  // Edición manual → actualizar la plantilla conservando los marcadores
+  introEl.addEventListener('input', () => { plantillaIntro = reTokenizarIntro(introEl.value); });
+}
+const periodoEl = document.getElementById('periodo');
+if(periodoEl){
+  periodoEl.addEventListener('input', () => { periodoActual = periodoEl.value.trim(); renderIntro(); });
+}
+
+/* Rellena Proyecto y Subsecretaría según el entregable elegido.
+   render=false evita re-escribir la introducción (útil al cargar borrador). */
+function aplicarEntregable(i, render=true){
   const e = ENTREGABLES[i];
+  if(!e) return;
   const proy = document.getElementById('proyecto');
-  if(e && proy) proy.value = e.proyecto;
+  if(proy) proy.value = e.proyecto;
+  subsecretariaActual = e.subsecretaria || '';
+  if(render) renderIntro();
 }
 
 function initEntregables(){
@@ -366,12 +410,20 @@ function cargarBorrador(){
       if(k === 'entregable' || k === 'entregableIdx' || k === 'proyecto') return;
       const el=document.getElementById(k); if(el) el.value=v;
     });
-    // Restaurar el entregable seleccionado y su proyecto asociado
+    // Restaurar el entregable seleccionado (proyecto + subsecretaría) sin
+    // re-escribir la introducción: el texto guardado se usa como plantilla.
     const sel = document.getElementById('entregable');
     const idx = Number(d.encabezado?.entregableIdx);
     if(sel && ENTREGABLES[idx]){
       sel.value = String(idx);
-      aplicarEntregable(idx);
+      aplicarEntregable(idx, false);
+    }
+    // Reconstruir la introducción dinámica a partir del texto restaurado:
+    // se re-insertan los marcadores usando el periodo y la subsecretaría actuales.
+    periodoActual = (periodoEl && periodoEl.value.trim()) || '';
+    if(introEl){
+      plantillaIntro = reTokenizarIntro(introEl.value);
+      renderIntro();
     }
     SECCIONES.forEach(s => SUBCATS.forEach(sc => {
       const t = d.textos?.[s.id]?.[sc.id] || '';
@@ -387,7 +439,7 @@ function cargarBorrador(){
 cargarBorrador();
 
 function leerEncabezado(){
-  const enc = ['proyecto','entregable','periodo','presentacion','periodoCarpeta',
+  const enc = ['proyecto','entregable','periodo','presentacion',
           'introduccion','proyNombre','proyCargo','revNombre','revCargo']
     .reduce((acc,id)=>{ acc[id]=document.getElementById(id).value; return acc; },{});
   // 'entregable' es un <select> cuyo value es el índice; guardamos ese índice
@@ -562,9 +614,10 @@ async function enviarEvidenciasAOneDrive(enc){
     console.warn('FLOW_URL vacía: no se envían evidencias a OneDrive.');
     return;
   }
-  if(!enc.periodoCarpeta){ toast('Indica el mes/año de la carpeta (ej. 2026-06) para enviar a OneDrive'); return; }
-
-  const carpetaRaiz = `EvidenciasSPC_${enc.periodoCarpeta}`;
+  // La carpeta de destino se arma automáticamente con el año-mes actual.
+  const hoy = new Date();
+  const anioMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+  const carpetaRaiz = `EvidenciasSPC_${anioMes}`;
   const lista = recolectarEvidencias(carpetaRaiz);
   if(lista.length === 0) return; // no hay archivos que enviar
 
@@ -733,7 +786,9 @@ document.getElementById('btnGenerar').onclick = async () => {
   });
 
   // ----- Documento final -----
-  const intro = (enc.introduccion||'').replace('[PERIODO]', enc.periodo);
+  const intro = (enc.introduccion||'')
+    .replace(/\[SUBSECRETARIA\]/g, subsecretariaActual || '')
+    .replace(/\[PERIODO\]/g, enc.periodo || '');
   const doc = new Document({
     creator:'Gestor Evidencias SPC',
     styles:{ default:{ document:{ run:{ font:FUENTE, size:22 } } } },
