@@ -387,7 +387,7 @@ function cargarBorrador(){
 cargarBorrador();
 
 function leerEncabezado(){
-  const enc = ['proyecto','entregable','indicador','periodo','presentacion','periodoCarpeta',
+  const enc = ['proyecto','entregable','periodo','presentacion','periodoCarpeta',
           'introduccion','proyNombre','proyCargo','revNombre','revCargo']
     .reduce((acc,id)=>{ acc[id]=document.getElementById(id).value; return acc; },{});
   // 'entregable' es un <select> cuyo value es el índice; guardamos ese índice
@@ -667,7 +667,6 @@ document.getElementById('btnGenerar').onclick = async () => {
     rows:[
       ['Proyecto', enc.proyecto],
       ['Entregable', enc.entregable],
-      ['Indicador', enc.indicador],
       ['Periodo', enc.periodo],
       ['Presentación', enc.presentacion]
     ].map(([k,v]) => new TableRow({ children:[
