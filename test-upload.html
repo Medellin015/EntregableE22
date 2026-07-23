@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es-CO">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prueba CORS · Subida directa a OneDrive</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1e293b; background:#f8fafc; }
+  h1 { font-size: 1.3rem; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:1.2rem; margin-bottom:1rem; }
+  label { display:block; font-weight:600; font-size:.85rem; margin:.6rem 0 .25rem; }
+  input[type=text], input[type=number] { width:100%; padding:.55rem .7rem; border:1.5px solid #cbd5e1;
+         border-radius:8px; font-size:.9rem; box-sizing:border-box; }
+  button { margin-top:1rem; background:#2563eb; color:#fff; border:0; border-radius:8px;
+           padding:.7rem 1.2rem; font-size:.95rem; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  pre { background:#0f172a; color:#e2e8f0; padding:1rem; border-radius:8px; font-size:.82rem;
+        white-space:pre-wrap; word-break:break-word; max-height:360px; overflow:auto; }
+  .ok { color:#16a34a; font-weight:700; }
+  .bad { color:#dc2626; font-weight:700; }
+  small { color:#64748b; }
+</style>
+</head>
+<body>
+  <h1>🧪 Prueba de CORS — subida directa a OneDrive</h1>
+  <p><small>Comprueba si el navegador puede subir bytes <b>directo a OneDrive</b> por una sesión de
+  carga (upload session), sin pasar por base64. Ábrela desde el <b>mismo dominio</b> que la app real.</small></p>
+
+  <div class="card">
+    <label>URL del flujo de prueba (el que crea la sesión de carga)</label>
+    <input type="text" id="flowUrl" placeholder="https://...powerplatform.com/.../invoke?api-version=1&...sig=...">
+
+    <label>Tamaño de trozo (MB) — múltiplo recomendado 5</label>
+    <input type="number" id="chunkMb" value="5" min="1" step="1">
+
+    <label>Archivo de prueba (elige uno mediano, ej. 30–80 MB, para probar bien)</label>
+    <input type="file" id="file">
+
+    <button id="btn">Probar subida directa</button>
+  </div>
+
+  <div class="card">
+    <label>Registro</label>
+    <pre id="log">Esperando…</pre>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+function log(msg){ logEl.textContent += '\n' + msg; logEl.scrollTop = logEl.scrollHeight; }
+function reset(){ logEl.textContent = 'Inicio…'; }
+
+$('btn').onclick = async () => {
+  reset();
+  const flowUrl = $('flowUrl').value.trim();
+  const file = $('file').files[0];
+  const chunkMb = Math.max(1, Number($('chunkMb').value) || 5);
+  // Graph exige trozos múltiplos de 320 KiB (excepto el último). 1 MB no lo es; redondeamos a 320 KiB.
+  const UNIT = 327680; // 320 KiB
+  const CHUNK = Math.max(UNIT, Math.round((chunkMb * 1024 * 1024) / UNIT) * UNIT);
+
+  if(!flowUrl){ log('❌ Pega la URL del flujo de prueba.'); return; }
+  if(!file){ log('❌ Elige un archivo.'); return; }
+  $('btn').disabled = true;
+
+  log(`Archivo: ${file.name} · ${(file.size/1048576).toFixed(1)} MB`);
+  log(`Trozo: ${(CHUNK/1048576).toFixed(2)} MB`);
+
+  // Paso 1: pedir la upload session al flujo
+  log('\n1) Pidiendo upload session al flujo…');
+  let uploadUrl;
+  try {
+    const r = await fetch(flowUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ nombreArchivo: file.name, tamano: file.size })
+    });
+    log('   El flujo respondió HTTP ' + r.status);
+    if(!r.ok){ log('   ❌ El flujo falló. Cuerpo: ' + (await r.text()).slice(0,300)); throw 0; }
+    const data = await r.json();
+    uploadUrl = data.uploadUrl || data.UploadUrl || data.url;
+    if(!uploadUrl){ log('   ❌ El flujo no devolvió "uploadUrl". Cuerpo: ' + JSON.stringify(data).slice(0,300)); throw 0; }
+    log('   ✅ uploadUrl recibido de OneDrive.');
+  } catch(e){
+    if(e) log('   ❌ Error llamando al flujo (¿CORS del flujo o error interno?): ' + (e.message || e));
+    $('btn').disabled = false; return;
+  }
+
+  // Paso 2: PUT directo por trozos a OneDrive
+  log('\n2) Subiendo directo a OneDrive por trozos…');
+  let start = 0;
+  try {
+    while(start < file.size){
+      const end = Math.min(start + CHUNK, file.size);
+      const blob = file.slice(start, end);
+      const range = `bytes ${start}-${end-1}/${file.size}`;
+      log(`   PUT ${range}`);
+      const pr = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Range': range }, body: blob });
+      log(`     → HTTP ${pr.status}`);
+      if(pr.status === 200 || pr.status === 201){
+        log('\n<span class="ok">✅ SUBIDA COMPLETA — CORS PERMITIDO.</span>'.replace(/<[^>]+>/g,''));
+        log('✅ RESULTADO: la subida directa FUNCIONA. Podemos usar upload session.');
+        log('   Revisa que el archivo quedó en OneDrive: /EVIDENCIAS_PRUEBA_CORS/prueba-cors.bin');
+        $('btn').disabled = false; return;
+      }
+      if(pr.status !== 202){
+        log('     ⚠️ Estado inesperado. Cuerpo: ' + (await pr.text()).slice(0,200));
+      }
+      start = end;
+    }
+    log('✅ RESULTADO: terminó sin error → CORS PERMITIDO.');
+  } catch(e){
+    log('\n❌ RESULTADO: CORS BLOQUEADO (o error de red). ' + (e.message || e));
+    log('   Si dice "Failed to fetch", el navegador bloqueó el PUT directo a SharePoint por CORS.');
+    log('   → Iremos por el Plan B: subir por trozos A TRAVÉS del flujo (sin subida directa).');
+  }
+  $('btn').disabled = false;
+};
+</script>
+</body>
+</html>
