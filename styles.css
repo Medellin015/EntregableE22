@@ -278,6 +278,8 @@ input:focus, textarea:focus, select:focus {
 }
 textarea { resize: vertical; }
 select { cursor: pointer; }
+/* Indicador de campo obligatorio */
+.obligatorio { color: #e11d48; font-weight: 600; font-size: .78rem; }
 /* Campo de solo lectura (Proyecto, que se rellena automáticamente) */
 input[readonly] { background: var(--superficie); opacity: .85; cursor: default; }
 label.campo span small { font-weight: 400; color: var(--texto-suave); }

@@ -107,7 +107,7 @@ SECCIONES.forEach(sec => {
       ${SUBCATS.map(sc => `
         <div class="subcat">
           <h3>${sc.label}</h3>
-          <label class="etiqueta">Desarrollo de las acciones (una viñeta por línea)</label>
+          <label class="etiqueta">Desarrollo de las acciones (una viñeta por línea) <span class="obligatorio">* obligatorio si adjuntas evidencias</span></label>
           <textarea data-sec="${sec.id}" data-sub="${sc.id}" data-campo="texto" rows="3"
             placeholder="Cada línea será una viñeta en el Word"></textarea>
 
@@ -618,10 +618,11 @@ async function enviarEvidenciasAOneDrive(enc){
     console.warn('FLOW_URL vacía: no se envían evidencias a OneDrive.');
     return;
   }
-  // La carpeta de destino se arma automáticamente con el año-mes actual.
+  // Estructura de carpetas: EvidenciasSPC / <año-mes> / <sección> / <tipo> / archivo.
+  // El año-mes (periodo) se arma automáticamente y queda como subcarpeta.
   const hoy = new Date();
   const anioMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-  const carpetaRaiz = `EvidenciasSPC_${anioMes}`;
+  const carpetaRaiz = `EvidenciasSPC/${anioMes}`;
   const lista = recolectarEvidencias(carpetaRaiz);
   if(lista.length === 0) return; // no hay archivos que enviar
 
@@ -656,7 +657,25 @@ async function cargarImagenDoc(ruta, anchoObjetivo){
 
 document.getElementById('btnGenerar').onclick = async () => {
   const enc = leerEncabezado();
-  if(!enc.periodo || !enc.presentacion){ toast('Completa Periodo y Presentación'); return; }
+
+  // ----- Validaciones de campos obligatorios -----
+  const faltantes = [];
+  if(!(enc.periodo||'').trim())      faltantes.push('Periodo');
+  if(!(enc.presentacion||'').trim()) faltantes.push('Presentación');
+  // El Desarrollo de las acciones es obligatorio en cada subcategoría que tenga archivos.
+  SECCIONES.forEach(s => SUBCATS.forEach(sc => {
+    const d = estado[s.id][sc.id];
+    if(d.archivos.length > 0 && !(d.texto||'').trim()){
+      faltantes.push(`Desarrollo de las acciones: ${sc.label} (${s.titulo})`);
+    }
+  }));
+  if(!(enc.conclusiones||'').trim()) faltantes.push('Conclusiones');
+  if(!(enc.proyNombre||'').trim())   faltantes.push('Proyectó (nombre)');
+  if(!(enc.revNombre||'').trim())    faltantes.push('Revisó (nombre)');
+  if(faltantes.length){
+    toast('Faltan datos obligatorios → ' + faltantes.join(' · '));
+    return;
+  }
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
           WidthType, BorderStyle, ShadingType, AlignmentType, HeightRule,
           convertInchesToTwip, Header, Footer, ImageRun, ExternalHyperlink } = docx;
