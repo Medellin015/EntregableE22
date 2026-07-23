@@ -470,7 +470,7 @@ function archivoABase64(file){
 }
 
 /* URL del flujo HTTP de Power Automate. */
-const FLOW_URL = 'https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2f03995cb40e4423a838f3c1ed26ac6e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=PfgR7ifyKN4P3nRV6EDLCahGiwZbt-L1vbolCyqSJzs';
+const FLOW_URL = 'https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/22/workflows/dbe322eaefc14d798768ebff721af5b2/triggers/manual/paths/invoke?api-version=1';
 
 /* Aviso del navegador si intentan cerrar/recargar durante el envío */
 window.addEventListener('beforeunload', (e) => {
