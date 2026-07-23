@@ -618,11 +618,13 @@ async function enviarEvidenciasAOneDrive(enc){
     console.warn('FLOW_URL vacía: no se envían evidencias a OneDrive.');
     return;
   }
-  // Estructura de carpetas: EvidenciasSPC / <año-mes> / <sección> / <tipo> / archivo.
-  // El año-mes (periodo) se arma automáticamente y queda como subcarpeta.
+  // La app manda como carpetaRaiz solo el periodo (año-mes automático).
+  // La carpeta raíz fija (/PARTICIPACIÓN/EVIDENCIAS COMUNICACIONES) se antepone
+  // en el propio flujo de Power Automate (expresión del campo "Ruta de la carpeta").
+  // Estructura final: /PARTICIPACIÓN/EVIDENCIAS COMUNICACIONES/<año-mes>/<sección>/<tipo>/archivo
   const hoy = new Date();
   const anioMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-  const carpetaRaiz = `EvidenciasSPC/${anioMes}`;
+  const carpetaRaiz = anioMes;
   const lista = recolectarEvidencias(carpetaRaiz);
   if(lista.length === 0) return; // no hay archivos que enviar
 
