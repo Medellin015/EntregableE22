@@ -24,9 +24,13 @@ SECCIONES.forEach(s => {
   SUBCATS.forEach(sc => estado[s.id][sc.id] = { texto:'', archivos:[], enlaces:[] });
 });
 
-/* Peso máximo permitido por archivo. Por encima de esto se rechaza
-   y se debe adjuntar un enlace al archivo en su lugar. */
+/* Umbrales de peso por archivo:
+   - Hasta LIMITE_MB: se envían normal (base64 en un POST al flujo principal).
+   - Entre LIMITE_MB y MAX_MB: se suben "por trozos" directo a OneDrive
+     (upload session de Graph). Tarda más pero soporta archivos grandes.
+   - Por encima de MAX_MB: se rechaza y se debe adjuntar como enlace. */
 const LIMITE_MB = 20;
+const MAX_MB = 300;
 
 /* ============================================================
    NORMALIZACIÓN DE NOMBRES (≤ 20 caracteres)
@@ -115,10 +119,10 @@ SECCIONES.forEach(sec => {
           <div class="dropzone" data-sec="${sec.id}" data-sub="${sc.id}">
             <input type="file" multiple data-sec="${sec.id}" data-sub="${sc.id}" data-campo="archivos">
             <span class="dropzone__hint">📎 <b>Arrastra aquí</b> tus archivos o haz clic para seleccionarlos<br>
-              <span class="dropzone__aviso">⚠️ Máximo <b>${LIMITE_MB} MB</b> por archivo. Si pesa más, agrégalo como enlace abajo.</span></span>
+              <span class="dropzone__aviso">Hasta <b>${LIMITE_MB} MB</b> se envían normal. Entre ${LIMITE_MB} y ${MAX_MB} MB se suben <b>por trozos</b> (tarda más, no cierres la ventana). Más de <b>${MAX_MB} MB</b>: agrégalo como enlace abajo.</span></span>
           </div>
 
-          <label class="etiqueta">Enlaces a archivos pesados (más de ${LIMITE_MB} MB)</label>
+          <label class="etiqueta">Enlaces a archivos pesados (más de ${MAX_MB} MB)</label>
           <div class="enlace-add" data-sec="${sec.id}" data-sub="${sc.id}">
             <input type="text" class="enlace-titulo" placeholder="Descripción (ej. Video evento PP)">
             <input type="url" class="enlace-url" placeholder="https://enlace-al-archivo (OneDrive, Drive, YouTube...)">
@@ -156,8 +160,8 @@ function agregarArchivos(sec, sub, fileList){
   const usados = new Set(estado[sec][sub].archivos.map(a => a.nombreNormalizado));
   const rechazados = [];
   for(const file of fileList){
-    // Rechazar archivos que superan el límite de peso
-    if(file.size > LIMITE_MB * 1024 * 1024){
+    // Rechazar solo los que superan el máximo absoluto (usar enlace).
+    if(file.size > MAX_MB * 1024 * 1024){
       rechazados.push(file.name);
       continue;
     }
@@ -172,11 +176,13 @@ function agregarArchivos(sec, sub, fileList){
       extension: ext,
       fecha: fecha,
       esVideo,
+      // Grande = se sube por trozos (upload session) en vez de base64.
+      grande: file.size > LIMITE_MB * 1024 * 1024,
       file
     });
   }
   if(rechazados.length){
-    toast(`Supera ${LIMITE_MB} MB (agrégalo como enlace): ${rechazados.join(', ')}`);
+    toast(`Supera ${MAX_MB} MB (agrégalo como enlace): ${rechazados.join(', ')}`);
   }
   refrescarTabla(sec, sub);
 }
@@ -469,8 +475,15 @@ function archivoABase64(file){
   });
 }
 
-/* URL del flujo HTTP de Power Automate. */
+/* URL del flujo HTTP de Power Automate (archivos ≤ LIMITE_MB, base64). */
 const FLOW_URL = 'https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/22/workflows/dbe322eaefc14d798768ebff721af5b2/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=MM4NvwU9GG0AD-GjP69JWHwrg8ZueabBhEG9xS19imI';
+
+/* URL del flujo que crea la "upload session" de Graph (archivos grandes).
+   Devuelve { uploadUrl } y la app sube el archivo por trozos directo a OneDrive. */
+const FLOW_UPLOAD_URL = 'https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/24/workflows/8b0eb49d1c3e4f81a9105c70935b30fa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=wT9a_u5ShYhujzFFX94omxfcYkMLARHoL7hSxHi9exs';
+
+/* Tamaño de trozo para la subida directa (múltiplo de 320 KiB que exige Graph). */
+const TROZO_BYTES = 5 * 1024 * 1024; // 5 MB = 16 × 320 KiB
 
 /* Aviso del navegador si intentan cerrar/recargar durante el envío */
 window.addEventListener('beforeunload', (e) => {
@@ -496,10 +509,12 @@ function recolectarEvidencias(carpetaRaiz){
   SECCIONES.forEach(s => SUBCATS.forEach(sc => {
     estado[s.id][sc.id].archivos.forEach(a => lista.push({
       ruta: `${s.slug}/${sc.slug}`,
+      carpeta: `${carpetaRaiz}/${s.slug}/${sc.slug}`,  // periodo/sección/tipo (para archivos grandes)
       seccion: s.titulo,        // nombre legible de la sección
       subcategoria: sc.label,   // nombre legible (Prensa, Diseño, ...)
       nombreArchivo: `${a.nombreNormalizado}.${a.extension}`,
       rutaCompleta: `${carpetaRaiz}/${s.slug}/${sc.slug}/${a.nombreNormalizado}.${a.extension}`,
+      grande: !!a.grande,
       archivo: a.file
     }));
   }));
@@ -524,8 +539,51 @@ async function detalleError(resp){
   } catch(_){ return ''; }
 }
 
+/* Sube un archivo GRANDE por trozos directo a OneDrive (upload session de Graph).
+   1) Pide el uploadUrl al flujo de sesión de carga.
+   2) Envía el archivo en trozos con PUT y encabezado Content-Range.
+   El navegador habla directo con OneDrive (validado: CORS permitido). */
+async function enviarPorTrozosGraph(it, indice, total){
+  if(!FLOW_UPLOAD_URL){ throw new Error('Falta configurar FLOW_UPLOAD_URL'); }
+
+  // 1) Solicitar la sesión de carga
+  const body = JSON.stringify({ carpeta: it.carpeta, nombreArchivo: it.nombreArchivo });
+  const resp = await postFlow(FLOW_UPLOAD_URL, body, 'text/plain;charset=UTF-8');
+  if(!resp.ok) throw new Error('Sesión de carga HTTP ' + resp.status + (await detalleError(resp)));
+  let data = null;
+  try { data = await resp.json(); } catch(_){ throw new Error('El flujo no devolvió JSON (¿falta la acción Respuesta?)'); }
+  const uploadUrl = data && (data.uploadUrl || data.UploadUrl);
+  if(!uploadUrl) throw new Error('El flujo no devolvió uploadUrl');
+
+  // 2) Subir por trozos directo a OneDrive
+  const file = it.archivo;
+  const size = file.size;
+  let start = 0;
+  while(start < size){
+    const end = Math.min(start + TROZO_BYTES, size);
+    const range = `bytes ${start}-${end - 1}/${size}`;
+    const pr = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': range },
+      body: file.slice(start, end)
+    });
+    // 202 = trozo aceptado; 200/201 = archivo finalizado.
+    if(pr.status !== 200 && pr.status !== 201 && pr.status !== 202){
+      let det = ''; try { det = (await pr.text() || '').slice(0, 200); } catch(_){}
+      throw new Error('Trozo HTTP ' + pr.status + (det ? ' – ' + det : ''));
+    }
+    start = end;
+    const fraccion = start / size;
+    const overall = Math.round(((indice - 1) + fraccion) / total * 100);
+    progresoOverlay(overall, `Subiendo ${indice} de ${total} (grande): ${it.nombreArchivo} · ${Math.round(fraccion * 100)}%`);
+  }
+}
+
 /* Envía una evidencia individual al flujo */
 async function enviarUna(url, it, carpetaRaiz, indice, total){
+  // Archivos grandes: subida directa por trozos (upload session).
+  if(it.grande){ return enviarPorTrozosGraph(it, indice, total); }
+
   const contenidoBase64 = await archivoABase64(it.archivo);
   const payload = {
     carpetaRaiz,                       // EvidenciasSPC_2026-06
